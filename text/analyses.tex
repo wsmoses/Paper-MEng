@@ -1,0 +1,220 @@
+\chapput{analyses}{Analysis passes}
+
+This chapter describes how LLVM's analysis passes can be adapted to
+operate on \tapir programs.  I first discuss constraints on how
+\tapir programs can be safely transformed.  Implementing these
+contraints on LLVM optimization passes primarily involves adapting
+standard compiler analyses --- specifically alias analysis
+\cite[Ch.~12]{AhoLaSe06}, dominator analysis \cite[Ch.~9]{AhoLaSe06},
+and data-flow analysis \cite[Ch.~9]{AhoLaSe06} --- to accomodate
+\tapir's instructions.  I describe how each of these analyses was
+minimally modified to support \tapir.
+
+\section{Constraints on transformations}
+
+% Because \tapir allows for parallel execution, rather than demand it,
+% many common compiler optimizations for serial programs can operate
+% across \tapir's instructions.
+
+To be correct, a code transformation on a \tapir program must preserve
+the program's serial semantics, and it must not introduce any new
+behaviors into the program's set of behaviors.  A program can exhibit
+more than one behavior if it contains a determinacy race.  In general,
+the result of a determinacy race can vary nondeterministically from
+run to run depending on the order in which the participating
+instructions access the memory location.  To avoid introducing new
+behaviors, code transformations must not create determinacy races,
+although they can eliminate determinacy races.  Many existing serial
+optimizations can be adapted to respect these properties by adapting
+the standard compiler analyses they rely on.  I now describe how
+LLVM's alias, dominator, and data-flow analyses were
+adapted for \tapir.
+
+% One way a code transformation can preserve the two correctness
+% properties is by \defn{serializing} a portion of the CFG: constraining
+% parallel tasks to execute in the serial-execution order, rather than
+% allowing the runtime system to order things as it sees fit.
+% \tbsnote{The following description of serialization feels out of place
+%   to me.  It might fit better with the discussion on the asymmetry of
+%   \tapir's representation.}
+
+\section{Alias analysis}
+
+% Key to optimizing \tapir programs correctly is preventing code-motion
+% optimizations from introducing determinacy races.  For example, if two
+% instructions access the same memory location and one of them writes to
+% that location, a transformation should not move these instructions to
+% execute in parallel if originally they were guaranteed to execute in
+% series.
+
+LLVM uses alias analysis \cite[Ch.~12]{AhoLaSe06} to determine whether
+different instructions might reference the same locations in memory,
+and in particular, to restrict the reordering of instructions that
+access the same memory.  \tapir/LLVM modifies LLVM's alias analysis to
+prevent optimizations that move code around from introducing
+determinacy races.  In particular, \tapir adapts LLVM's alias analysis
+to treat the instructions as if they access memory.  For example,
+consider an instruction $k$ that performs a load or a store.  There
+are four cases to consider when moving $k$ around either a \detach
+instruction $i$ or a \sync instruction~$j$:
+\begin{closeenum}
+
+\item\label{case:after_detach} The instruction $k$ moves from before
+  $i$ to after~$i$.
+
+\item\label{case:before_detach} The instruction $k$ moves from after
+  $i$ to before~$i$.
+
+\item\label{case:after_sync} The instruction $k$ moves from before $j$
+  to after~$j$.
+
+\item\label{case:before_sync} The instruction $k$ moves from after $j$
+  to before~$j$.
+
+\end{closeenum}
+Neither \caseref{before_detach} nor \caseref{after_sync} can introduce
+a determinacy race, because both motions serialize the execution of
+$k$ with respect to the sub-CFG detached by~$i$.
+\casereftwo{after_detach}{before_sync} might introduce a determinacy
+race, however, if $k$ loads or stores a memory location that is also
+accessed by the CFG detached by~$i$.  To handle
+\caseref{after_detach}, $i$ is treated as if it were a function call
+that accesses all memory locations accessed in the CFG detached
+by~$i$.  Similarly, for \caseref{before_sync}, $j$ is treated as if it
+were a function call that accesses all memory locations accessed by
+all instructions that $j$ might sync.  A \code{reattach} instruction
+is treated as a compiler fence that prevents instructions from moving
+across it.  With these modifications, existing rules in LLVM that
+restrict reordering of loads and stores properly restrict memory
+reordering around \tapir's instructions.
+
+
+\section{Dominator analysis}
+
+Optimization passes determine what values are available to an
+instruction in part by using dominator analysis
+\cite[Ch.~9]{AhoLaSe06}, which deduces the dominance relation between
+all basic blocks and edges in a CFG\@.  To handle \tapir programs
+correctly, optimization passes must not mistakenly cause instructions
+to use virtual registers that are defined in logically parallel tasks.
+If instruction $i$ dominates instruction $j$, than an optimization
+pass might assume that the value produced by $i$ is always available
+when $j$ executes.
+
+% determine that one instruction is guaranteed to execute
+% before another when \tapir allows those instructions to execute in
+% parallel.  Existing optimization determine when one instruction is
+% guaranteed to execute before another using 
+
+% Many optimization passes must determine what basic blocks or
+% control-flow edges in a CFG dominate a particular point in the
+% CFG\@.
+
+The asymmetry of \tapir's representation allows LLVM's dominator
+analysis to analyze \tapir programs correctly without any changes.
+Ignoring the names of edges, the difference between the CFG
+$G=(V,E,v_0)$ of a \tapir program and the CFG $G'=(V,E',v_0)$ of its
+serial elision is the set $E-E'$ of continue edges, each of which
+connects a \detach instruction to its continuation.  A continue edge
+short-cuts a detached sub-CFG, changing the continuation's immediate
+dominator from the detached sub-CFG to the block containing the
+\detach instruction itself.  This configuration of detach, reattach,
+and continue edges looks much like an ordinary \code{if} construct in
+which the detached sub-CFG is conditionally executed.  As a result,
+dominator analysis never concludes that an instruction in a detached
+sub-CFG can execute before the corresponding continuation block.
+
+% \tbsnote{The story with postdominator analysis seems murkier to me.}
+
+% LLVM's dominator analysis requires no changes to handle \tapir
+% programs.
+
+
+\section{Data-flow analysis}
+
+A wide class of code transformations, including those that might move
+instructions across a reattach edge, rely on data-flow analysis
+\cite[Ch.~9]{AhoLaSe06} to examine the propagation of values along
+different paths through a CFG $G=(V,E,v_0)$.  Fundamental to data-flow
+analysis is an understanding of the set of possible program states at
+the beginning and end of each basic block $b\in V$, denoted
+$\proc{in}(b)$ and $\proc{out}(b)$, respectively.
+
+To illustrate how LLVM's data-flow analyses were adapted to \tapir,
+let us examine the particular case of forward data-flow analysis.
+(Backward data-flow analysis is similar.)  In an ordinary serial CFG,
+forward data-flow analysis evaluates $\proc{in}(b)$ as the union of
+$\proc{out}(a)$ for each predecessor block $a$ of $b$:
+\[
+\proc{in}(b) = \bigcup_{(a,b)\in E}\proc{out}(a)\ .
+\]
+
+To handle \tapir CFG's, data-flow analyses must be adapted
+specifically to handle reattach edges.  Because \tapir's asymmetric
+representation propagates virtual registers and memory state
+differently across a reattach edge, the modifications to LLVM data
+analyses consider registers and memory separately.
+
+For variables stored in shared memory, the
+standard data-flow equations remain unchanged. Thus, LLVM need not be
+modified to handle them for \tapir.
+
+For register variables, however, LLVM's data-flow analyses must be
+modified to exclude the values in registers from an immediate
+predecessor $a$ of a basic block $b$ if the edge $(a,b)\in E$ is a
+reattach edge.  Denote the set of reattach edges in $E$ by~$E_{R}$.
+For a \tapir CFG, forward data-flow analyses define $\proc{in}(b)$ for
+register variables as
+\[
+\proc{in}(b) = \bigcup_{(a,b)\in E - E_{R}}\proc{out}(a)\ ,
+\]
+that is, they ignore predecessors across a reattach edge.  With this
+change, \tapir/LLVM correctly propagates register variables through
+the CFG, never allowing register values in a basic block to use
+register values set in a logically parallel detached sub-CFG.
+
+% Data-flow analyses on memory values are generally adapted to \tapir
+% programs by handling the incoming values $\proc{in}(c)$ to a
+% continuation block $c$ for a memory location $\ell$ in a special
+% manner.  Let $d$ and $r$ be predecessors of $c$ where $d$ is
+% terminated by a \detach instruction $i$ and $r$ is terminated by a
+% \reattach instruction that reattaches~$i$.  If data-flow analysis
+% finds that $\proc{out}(d)$ and $\proc{out}(r)$ are not the same for
+% memory location $\ell$, then the value of $\ell$ is not deterministic
+% at the start of~$c$.  In this case, it is safe for data-flow analyses
+% to assume the most conservative value for $\ell$ at the start of~$c$.
+
+% Although optimizations on memory must be handled carefully to
+% interoperate with \tapir, only a limited set of optimizations in LLVM
+% that operate on memory values, because these values must be explicitly
+% loaded into and stored from register variables.
+
+
+% Excluding the restriction that
+% registers from \reattach predecessors may not be used in the continuation,
+% this additional constraint is no less expressive than the scenario where
+% $\phi$ nodes were permitted in the the sucessors of \reattach edges.
+% 
+% This is because you can always construct a CFG that does not have $\phi$
+% nodes in the sucessors of \reattach edges from a CFG which does have
+% $\phi$ nodes in the successors of \reattach edges and does not use
+% values from the detached sub-CFG in the continuation.
+% 
+% For example, suppose the continuation $c$ that has a $\phi$ node. Split it
+% into two blocks $a$ and $b$. The block $a$ contains only a branch to 
+% $b$ and contains the reattach edge and detach edge as predecessors. The block $b$
+% contains all the instructions of $c$, including $\phi$ nodes, and all other
+% predecessors branch to $b$.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:
+
+%  LocalWords:  LLVM multithreading multicore OpenMP Cilk GCC Cilk's
+%  LocalWords:  pseudocode metadata LLVM's bitcode codebase CFG's CFG
+%  LocalWords:  subexpression interleavings subcomputations runtime
+%  LocalWords:  vertices subcomputation OpenMP's nonatomic dominator
+%  LocalWords:  nondeterministically nondeterministic postdominator
+%  LocalWords:  dominators postdominators
+

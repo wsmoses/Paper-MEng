@@ -1,0 +1,11 @@
+\begin{CodeFigVerbatim}[commandchars=\\\{\},codes={\catcode`\$=3\catcode`\^=7\catcode`\_=8}]
+\PY{k}{\PYZus{}\PYZus{}attribute\PYZus{}\PYZus{}}\PY{p}{(}\PY{p}{(}\PY{k}{const}\PY{p}{))}
+\PY{k+kt}{double} \PY{n}{norm}\PY{p}{(}\PY{k}{const} \PY{k+kt}{double} \PY{o}{*}\PY{n}{A}\PY{p}{,} \PY{k+kt}{int} \PY{n}{n}\PY{p}{);}
+
+\PY{k+kt}{void} \PY{n+nf}{normalize}\PY{p}{(}\PY{k+kt}{double} \PY{o}{*}\PY{k+kr}{restrict} \PY{n+nv}{out}\PY{p}{,}
+               \PY{k}{const} \PY{k+kt}{double} \PY{o}{*}\PY{k+kr}{restrict} \PY{n+nv}{in}\PY{p}{,} \PY{k+kt}{int} \PY{n+nv}{n}\PY{p}{)} \PY{p}{\PYZob{}}
+  \PY{c+cp}{\PYZsh{}pragma omp parallel for}
+  \PY{k+kPredicated}{for} \PY{p}{(}\PY{k+kt+ktBLOCK}{int} \PY{n+nv}{i} \PY{o}{=} \PY{l+m+mi}{0}\PY{p+pBLOCKFOR}{;} \PY{n}{i} \PY{o}{\PYZlt{}} \PY{n}{n}\PY{p}{;} \PY{o}{++}\PY{n}{i}\PY{p}{)}
+    \PY{n}{out}\PY{o}{[}\PY{n}{i}\PY{o}{]} \PY{o}{=} \PY{n}{in}\PY{o}{[}\PY{n}{i}\PY{o}{]} \PY{o}{/} \PY{n}{norm}\PY{p}{(}\PY{n}{in}\PY{p}{,} \PY{n}{n}\PY{p}{);}\PY{c+cPureTeX}{\lilabel{omp_normalize_element}}
+\PY{p}{\PYZcb{}}
+\end{CodeFigVerbatim}

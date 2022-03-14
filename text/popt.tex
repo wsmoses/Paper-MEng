@@ -1,0 +1,96 @@
+\chapput{popt}{Parallel optimization passes}
+
+
+\section{Synchronization Elimination}
+
+TODO
+
+\section{Small Task Serialization}
+
+TODO
+
+\section{Parallel Loop Indexing}
+
+TODO
+
+\section{Coarsening}
+
+
+\section{Parallel Loop Fusion}
+Interestingly, in addition to both permitting serial optimizations to operate on parallel code and allowing optimizations on the parallel 
+
+
+\section{Non-deterministic LICM}
+\begin{verbatim}
+__attribute__((const))
+int Object::method1();
+
+void Object::method2(int cnt);
+
+Object* obj = ...;
+cilk_for() {
+  int cnt = obj->method1();
+  obj->method2(cnt);
+}
+
+\end{verbatim}
+
+\begin{verbatim}
+__attribute__((const))
+int method1(int* obj);
+
+void method2(int* obj);
+
+int* obj;
+cilk_for() {
+  int cnt = method1(obj);
+  method2(obj);
+}
+
+
+#define cilk_for _Cilk_for
+
+__attribute__((const))
+int method1(int* obj);
+
+void method2(int* obj, int cnt);
+
+int* acq();
+
+int len();
+
+int main() {
+  int n = len();
+  int* obj = acq();
+
+
+  cilk_for(int i=0; i<n; i++) {
+    int cnt = method1(obj);
+    method2(obj,cnt);
+  }
+
+}
+\end{verbatim}
+
+\section{Interplay optimizations (Spawn unswitching)}
+
+Or perhaps task sinking
+\begin{verbatim}
+cilk_spawn {
+    if (value) {
+        foo(i);
+    }
+}
+
+becomes
+
+if (value) {
+    cilk_spawn {
+        foo(i);
+    }
+}
+\end{verbatim}
+
+
+
+

@@ -1,0 +1,11 @@
+\begin{CodeFigVerbatim}[commandchars=\\\{\},codes={\catcode`\$=3\catcode`\^=7\catcode`\_=8}]
+\PY{k+kt}{void} \PY{n+nf}{pqsort}\PY{p}{(}\PY{k+kt}{int}\PY{o}{*} \PY{n+nv}{start}\PY{p}{,} \PY{k+kt}{int}\PY{o}{*} \PY{n+nv}{end}\PY{p}{)} \PY{p}{\PYZob{}}
+  \PY{k+kPredicated}{if} \PY{p}{(}\PY{n}{begin} \PY{o}{==} \PY{n}{end}\PY{p}{)} \PY{k}{return}\PY{p}{;}
+  \PY{k+kt+ktBLOCK}{int}\PY{o}{*} \PY{n+nv}{mid} \PY{o}{=} \PY{n}{partition}\PY{p}{(}\PY{n}{start}\PY{p}{,} \PY{n}{end}\PY{p}{)}\PY{p+pBLOCK}{;}
+  \PY{n}{swap}\PY{p}{(}\PY{n}{end}\PY{p}{,} \PY{n}{mid}\PY{p}{)}\PY{p+pBLOCK}{;}
+  \PY{k+kCilk}{cilk\PYZus{}spawn} \PY{n}{pqsort}\PY{p}{(}\PY{n}{begin}\PY{p}{,} \PY{n}{mid}\PY{p}{)}\PY{p+pBLOCK}{;}
+  \PY{n}{pqsort}\PY{p}{(}\PY{n}{mid}\PY{o}{+}\PY{l+m+mi}{1}\PY{p}{,} \PY{n}{end}\PY{p}{)}\PY{p+pBLOCK}{;}\PY{c+cPureTeX}{\lilabel{pqsort_tail_call}}
+  \PY{k+kCilk}{cilk\PYZus{}sync}\PY{p+pBLOCK}{;}
+  \PY{k}{return}\PY{p}{;}
+\PY{p}{\PYZcb{}}
+\end{CodeFigVerbatim}

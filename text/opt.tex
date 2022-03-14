@@ -1,0 +1,302 @@
+\chapput{opt}{Optimization passes}
+
+\tapir enables LLVM's existing optimization passes
+\cite{LLVMPassesManual15} to work across parallel control flow.  It
+also enables new optimization passes that specifically target \tapir's
+fork-join parallel constructs.  This chapter discusses four
+representative optimizations.  Common-subexpression elimination\
+\cite[Sec.~12.2]{Muchnick97} illustrates an optimization pass that
+``just works'' with the additional \tapir instructions.
+Loop-invariant code motion\ \cite[Sec.~13.2]{Muchnick97}, and
+tail-recursion elimination\ \cite[Sec.~15.1]{Muchnick97} were the only
+two out of LLVM's roughly $80$ optimization passes that required any
+modification to work effectively on parallel code.  Parallel-loop
+scheduling serves as an example of a new optimization pass.
+
+% \tbsnote{Discuss parallel-specific opts as well?  Discuss work-span
+%   analysis?}
+
+%To collect the performance measurements described in this section, we
+%ran microbenchmark tests using our modified LLVM compiler.  We ran
+%these tests on Amazon AWS \code{c4.8xlarge} spot instances, which
+%contain a dual-socket Intel Xeon E5-2666 v3 system with a total of
+%\SI{60}{\gibi\byte} of memory.  Each Xeon is a $2.9$\,GHz $18$-core
+%CPU with a shared \SI{25}{\mebi\byte} L3-cache.  Each processor core
+%has a \SI{32}{\kibi\byte} private L1-data-cache and a
+%\SI{256}{\kibi\byte} private L2-cache.  In general, microbenchmarks
+%were compiled using \code{-O3} optimizations, excluding the
+%targeted optimization.
+
+\section{Common-subexpression elimination}
+
+
+\begin{figure}[t]
+  \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}l@{}l}
+    \begin{minipage}[T]{.45\linewidth}
+        \subfiglabel{a}
+      \begin{flushleft}
+        \ccodefig{figures/search}
+      \end{flushleft}
+        \vspace{1ex}
+    \end{minipage}
+    &
+    \begin{minipage}[T]{.45\linewidth}
+    \subfiglabel{b}
+      \begin{flushleft}
+        \ccodefig{figures/search_cse}
+      \end{flushleft}
+      \vspace{0.1ex}
+    \end{minipage}
+  \end{tabular*}
+  \caption[Example of common-subexpression elimination on a Cilk
+    program.]{Example of common-subexpression elimination on a Cilk
+    program.  \subfigcap{a}~The function \code{search}, which uses
+    parallel divide-and-conquer to apply the function
+    \code{search_base} to every integer in the closed interval
+    [\code{low}, \code{high}].  \subfigcap{b}~An optimized version of
+    \code{search}, where the common subexpression \code{(low+high)/2}
+    in \lireftwo{search_expr}{search_dupexpr} of the original version
+    is computed only once and stored in the variable \code{mid} in
+    \liref{search_cse_call} of the optimized version.}
+  \label{fig:search}
+\end{figure}
+
+The common-subexpression elimination (CSE) optimization identifies
+redundant calculations and transforms the code so that they are only
+computed once.  For example, the expression \code{(low+high)/2} in
+\subfigref{search}{a} is computed in both \liref{search_expr} and
+\liref{search_dupexpr}.  \tapir/LLVM performs CSE on this code,
+producing code equivalent to that in \subfigref{search}{b}.  Existing
+mainstream compilers that support fork-join parallelism do not
+eliminate this common subexpression, however, and they compute
+\code{(low+high)/2} twice.  \tapir/LLVM can perform CSE across either
+a continue edge, as in the example, or a detach edge.  Like the vast
+majority of optimization passes in \tapir/LLVM, CSE ``just works'' on
+\tapir code without any modifications to LLVM's CSE pass.
+
+\section{Loop-invariant code motion}
+
+The loop-invariant code motion (LICM) optimization
+\cite[Sec.~13.2]{Muchnick97} aims to move computations out of loop
+bodies if they compute the same value on every iteration of the loop.
+LICM is responsible, for example, for moving the call to \code{norm}
+in the parallel loop in \subfigref{normalize}{a} outside of the loop,
+as described in \chapref{intro}.  By adapting LICM to handle parallel
+loops, \tapir/LLVM reduces the asymptotic serial running time of this
+parallel loop from $\Theta(n^2)$
+to~$\Theta(n)$.
+
+% Indeed, we observe in practice that doubling the size $n$ of the
+% vectors increases the running time 
+
+% \begin{tabular*}{\textwidth}{ c|c|c|c|c }
+%               & N=40K,T=1 & N=40K,T=36 & N=80K,T=1 & N=80K,T=36\\
+% \hline
+% \tapir O3     &   0.09  &  0.12 &   0.19  &   0.23 \\
+% No Opt        & 215.60  & 29.63 & 863.01  & 108.06
+% \end{tabular*}
+
+\tapir/LLVM requires a minor change to LLVM's LICM pass to handle
+parallel loops.  Consider the CFG illustrated in
+\figref{tapir_normalize}, which models the parallel loops in
+\figref{normalize}.  For the serial elision of the loop, which would
+have a similar graph structure except with the continue edge missing,
+LLVM attempts to find candidate computations to move outside the loop
+by looking for instructions in the basic blocks of the loop body that
+dominate the exit block of the loop, such as the block \code{inc} in
+\figref{tapir_normalize}.  (The block labeled \code{exit} is the exit
+of the function, not the loop exit.)  For a parallel loop, however,
+this analysis fails to identify any code to move due to the existence
+of the continue edge.  As \figref{tapir_normalize} shows, with the
+continue edge, blocks in the loop body can never dominate the exit
+block \code{inc} as they could for the serial elision.
+
+\tapir/LLVM modifies LLVM's LICM pass to handle a parallel loop by
+analyzing the serial elision of the loop, which essentially means
+ignoring continue edges.  For simple parallel loop structures with a
+single continue edge, such as that shown in \figref{tapir_normalize},
+this modification is implemented by finding blocks in the loop body
+that dominate the predecessors of the loop exit.  The modification
+required changing only \fillintheblank{$25$} lines of LLVM's LICM
+pass.
+
+%\section{Scalar replacement of aggregates}
+
+%The scalar-replacement-of-aggregates optimization (SROA) attempts to
+%find structures and arrays in a program in a function and store their
+%individual fields in register variables.  Typically, because a whole
+%structure or array is too large to store in a register, such variables
+%are stored in memory instead.  SROA can therefore reduce the number of
+%memory accesses a function performs, thereby improving performance.
+
+%Without modifying SROA beyond the changes discussed in \secref{eval},
+%LLVM can perform SROA on \tapir programs.  We found that LLVM performs
+%SROA on the \tapir representation of a Cilk program from the Cilk-5
+%benchmark suite\ \cite{FrigoLeRa98} that computes a sparse Cholesky
+%decomposition.  This program uses a quad tree data structure to manage
+%the blocks within a matrix.  The traditional compilation method of
+%translating Cilk parallel lingustics to runtime calls, meanwhile,
+%prevents LLVM from performing SROA on the quad-tree data structure in
+%this program.  For this program, optimizing the \tapir representation
+%reduces the number of cache references in the serial execution by
+%\fillintheblank{$13\percent$--$20\percent$} and improves the serial
+%running time of the program by
+%\fillintheblank{$15\percent$--$24\percent$}, depending on optimization
+%level.
+
+% \tbsnote{\code{CILK_NWORKERS=1 ./cholesky -n 2000 -z 16000}}
+
+
+\section{Tail-recursion elimination}
+
+\begin{figure}[t]
+  \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}l@{}l}
+    \begin{minipage}[T]{.45\linewidth}
+    \subfiglabel{a}
+      \begin{flushleft}
+        \ccodefig{figures/pqsort}
+      \end{flushleft}
+        \vspace{1ex}
+        \subfiglabel{c}
+      \begin{flushleft}
+        \ccodefig{figures/pqsort_tre}
+      \end{flushleft}
+      \vspace{0.1ex}
+    \end{minipage}
+    &
+    \begin{minipage}[T]{.45\linewidth}
+    \subfiglabel{b}
+      \begin{flushleft}
+        \ccodefig{figures/pqsort_inl}
+      \end{flushleft}
+    \end{minipage}
+    \vspace{1ex}\\
+  \end{tabular*}
+  \caption[Example of tail-recursion elimination on a parallel
+    quicksort program.]{Example of tail-recursion elimination on a parallel
+    quicksort program.  \subfigcap{a}~The Cilk function \code{pqsort}
+    sorts an array of integers in the range specified by the
+    \code{start} and \code{end} pointers.  \subfigcap{b}~A version of
+    \code{pqsort} where the recursive tail call on
+    \liref{pqsort_tail_call} has been replaced by one round of
+    inlining.  \subfigcap{c}~A version of \code{pqsort} where
+    tail-recursion elimination has removed the recursive tail call on
+    \liref{pqsort_tail_call}.}
+  \label{fig:pqsort}
+\end{figure}
+
+Tail-recursion elimination (TRE) \cite[Sec.~15.1]{Muchnick97} aims
+to replace a recursive call at the end of a function with a branch to
+the start of the function.  By eliminating these recursive tail calls,
+TRE can avoid function-call overheads and reduce the stack space they
+consume.  This optimization can especially benefit fork-join parallel
+programs, as many parallel runtime systems impose additional setup and
+cleanup overhead on a spawned function.
+%  A common efficient
+%implementation of parallel loops, for example, spawns the parallel
+%loop iterations using recursive
+%divide-and-conquer~\cite[Sec.~8.3]{McCoolRoRe12}.  Work-stealing
+%running times, moreover, often use additional data structures per
+%function to manage logically parallel tasks~\cite{FrigoLeRa98,
+%  LeeBoHu10}.
+
+LLVM's existing TRE pass can perform the TRE optimization on \tapir
+programs with just a minor modification.  Specifically, the modified
+TRE pass ignores \sync instructions after the tail-recursive call.
+Further, if TRE is applied and ignores a \sync instruction, it must
+then insert a \sync instruction before any remaining returns.  This
+modification to LLVM's TRE pass required changing only
+\fillintheblank{$68$} lines.
+
+To see why these \sync instructions can be safely ignored, consider
+\figref{pqsort}, which illustrates how \tapir/LLVM's TRE pass operates
+on the \code{pqsort} function, a parallel version of Hoare's quicksort
+algorithm~\cite{Hoare61}.  The original tail-recursive code is shown
+in \subfigref{pqsort}{a}.  \subfigref{pqsort}{b} illustrates the
+result of simply inlining the tail-recursive call.  For the inlined
+code, all \code{return} statements are replaced with branches to the
+\code{join} label.  Because there is a \CilkSync at the start of
+\code{join}, the \CilkSync on \liref{inlined_sync} can be eliminated.
+call an arbitrary number of times, TRE can safely ignore a \CilkSync
+instruction after the final tail-recursive call, assuming that it
+inserts a \CilkSync instruction before all remaining returns.
+
+\section{Parallel-loop scheduling and lowering}
+
+As discussed above and in \chapref{newir}, Tapir effectively represents
+a parallel loop as a serial loop over a body that is spawned every
+iteration.  Depending on the number of iterations of the loop and the
+amount of work inside each loop, however, statically scheduling loop
+iterations in this way may be inefficient.  For a parallel loop with a
+large number of iterations, for instance, it is faster to schedule the
+iterations in a recursive divide-and-conquer fashion, which produces
+more parallelism (see \cite[Sec.~8.3]{McCoolRoRe12}.
+For parallel loops with few iterations, however, the additional
+function calls required to perform the parallel divide-and-conquer can
+make the loop run slower than simply spawning off the iterations.
+
+\tapir/LLVM implements a parallel optimization pass that schedules the
+iterations of a parallel loop using recursive divide-and-conquer, but
+only if that loop contains sufficiently many iterations.  This pass is
+implemented as part of \tapir/LLVM's \fillintheblank{$3800$}-line
+lowering pass, which translates \detach, \reattach, and \sync
+instructions into appropriate Cilk Plus runtime
+calls~\cite{IntelCilkPlusABI10}.  In particular, \tapir/LLVM uses the
+Cilk Plus runtime calls for \CilkFor loops
+\cite[Sec~10.7]{IntelCilkPlusABI10} to schedule parallel
+loops.  % We could have separated parallel-loop scheduling from
+% lowering by having the parallel-loop-scheduling pass directly emit the
+% appropriate function to schedule a parallel loop using
+% divide-and-conquer.
+Although we could have separated parallel-loop scheduling from
+lowering, we chose to combine these two passes so that we could
+perform fair comparisons between \tapir/LLVM and compilers that lower
+parallel constructs in their front end.  We plan to separate the
+parallel-loop-scheduling and lowering passes in a future version of
+\tapir/LLVM\@.
+
+% The lowering pass translates \detach, \reattach, and \sync
+% instructions into appropriate Cilk Plus runtime
+% calls~\cite{IntelCilkPlusABI10}.  This pass lifts detached CFG's in
+% the program into helper functions and inserts Cilk runtime calls to
+% allow those helper functions to run in parallel.  This pass, which
+% amounted to approximately \fillintheblank{$1900$} lines, allowed us to
+% run codes compiled with \tapir to verify that parallel executions
+% produce correct results.
+
+% \tapir/LLVM implements a pass that schedules a parallel loop using
+% Cilk's runtime-system method for \CilkFor loops
+% \cite[Sec.~10.7]{IntelCilkPlusABI10} only if that loop contains a
+% sufficient number of iterations.
+% % \tapir/LLVM implements a new optimization pass that transforms
+% % parallel loops into divide-and-conquer parallel loops, but only if
+% % there are sufficient iterations.
+% This pass was implemented in \fillintheblank{approximately $2000$}
+% lines of code, some of which is devoted to producing a parallel-loop
+% report for the programmer.
+
+%\wmnote{should there be a figure here?}
+
+\section{Other optimization passes}
+
+\tapir/LLVM implements two minor parallel optimization passes:
+unnecessary-synchronization elimination and puny-task elimination.
+\defn{Unnecessary-synchronization elimination} identifies and
+eliminates \sync instructions that could not possibly sync a detached
+sub-CFG\@.  \defn{Puny-task elimination} serializes detached sub-CFG's
+that perform little or no work.  If the runtime overhead of creating a
+parallel task outweighs the work in the task, the task might as well
+be run serially.  Both of these optimization passes were implemented
+in \fillintheblank{$52$} lines of code by augmenting LLVM's
+SimplifyCFG pass.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:
+
+%  LocalWords:  LLVM multithreading multicore OpenMP Cilk GCC Cilk's
+%  LocalWords:  pseudocode metadata LLVM's bitcode codebase CFG's CFG
+%  LocalWords:  subexpression interleavings subcomputations runtime
+%  LocalWords:  vertices subcomputation OpenMP's inlining quicksort
+%  LocalWords:  CSE LICM TRE inlined Hoare's

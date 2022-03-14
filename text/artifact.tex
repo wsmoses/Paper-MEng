@@ -1,0 +1,164 @@
+\newcommand{\arch}{\texttt{x86\_64}\xspace}
+\newcommand{\AWSinst}{\texttt{c4.8xlarge}\xspace}
+
+%\appendix
+
+\chapter{Artifact description}
+
+This guide describes how to set up \tapir/LLVM and how to download and
+run our suite of application benchmarks.  In particular, this guide
+focuses on setting up and running three software components:
+\begin{closeitemize}
+\item the \tapir/LLVM compiler,
+\item the PClang front end to \tapir/LLVM, and
+% \item The Intel Cilk Plus runtime system, and
+\item the suite of \fillintheblank{20} Cilk application benchmarks
+  described in \figref{bench}.
+\end{closeitemize}
+I provide instructions to download and build \tapir/LLVM and PClang.
+I also provide instructions to download the application benchmark
+suite and run the \tapir/LLVM compiler on that suite.
+
+% This guide will lead you through the necessary steps to reproduce the
+% experimental results given in \figref{benchnum}.  The figure compares
+% the serial and parallel performance of 20 application benchmarks when
+% compiled using either Tapir/LLVM or the reference compilation pipeline
+% illustrated in \figref{pipeline}.  To reproduce these results, this
+% evaluation makes use of four software components:
+% \begin{closeitemize}
+% \item The \tapir/LLVM compiler, which is the subject of the
+%   evaluation,
+% \item The PClang front end to \tapir/LLVM,
+% % \item The Intel Cilk Plus runtime system, and
+% \item The suite of 20 Cilk application benchmarks described in
+%   \figref{bench}.
+% \end{closeitemize}
+% This guide details how to obtain these four software components, set
+% them up, and run them in order to evaluate Tapir/LLVM's correctness
+% and efficacy.
+
+We have built and tested \tapir/LLVM, PClang, and the test suite on an
+\arch shared-memory multicore machine running Linux.  We provide
+instructions for obtaining \tapir/LLVM and PClang from my GitHub
+repositories and setting up the compiler on such a machine.  Due to
+the complexity of the LLVM compiler on which Tapir/LLVM is based,
+building \tapir/LLVM requires significant computational resources:
+approximately \fillintheblank{\SI{50}{\gibi\byte}} of disk,
+\fillintheblank{\SI{12}{\gibi\byte}} of RAM, and anywhere from a few
+minutes to a couple of hours, depending on the machine.  We also
+provide instructions for obtaining a copy of our test suite from a
+tarball.
+
+\section{Building \tapir/LLVM from source}\label{sec:install}
+
+This section describes how to download the source code for \tapir/LLVM
+and PClang from GitHub and build them.  These instructions assume you
+are building \tapir/LLVM on an \arch system running Linux.
+
+\paragraph{System requirements.}  Building \tapir/LLVM and PClang
+involves building the LLVM and Clang systems that they extend.
+Because of the size of the underlying LLVM and Clang codebases, you
+need a relatively powerful machine in order to build the compiler in a
+timely fashion.  Approximately \SI{50}{\gibi\byte} of disk space and
+\SI{12}{\gibi\byte} of memory are needed to compile LLVM and Clang.  A
+fresh build of LLVM and Clang can take substantial time to complete,
+e.g., approximately an hour on one processor of an AWS \AWSinst
+instance.  The build script will attempt to use parallel processors to
+speed up compilation.  See \url{http://llvm.org/docs/CMake.html} for
+more information on building LLVM and Clang.
+
+\begin{enumerate}
+\item Install the requisite software to build \tapir/LLVM and PClang,
+  namely, \code{cmake}, \code{gcc}, and \code{git}.
+
+\item Download the sources of Tapir/LLVM and PClang from
+  GitHub:
+\begin{verbatim}
+$ git clone --recursive https://github.com/wsmoses/Tapir-Meta.git
+\end{verbatim}
+  The source is approximately \fillintheblank{\SI{800}{\mebi\byte}} in
+  size.
+
+\item Compile \tapir/LLVM and PClang:
+\begin{verbatim}
+$ cd Tapir-Meta/
+$ bash ./build.sh
+\end{verbatim}
+  This script will build \tapir/LLVM and PClang and store the compiled
+  binaries in \code{Tapir-Meta/tapir/build}.  If the build succeeds, the
+  final line of output will be \texttt{Installation successful}.
+
+\item Set up your environment variables to use \tapir/LLVM and PClang:
+\begin{verbatim}
+$ source ./setup-env.sh
+\end{verbatim}
+  This script will add the \code{Tapir-Meta/tapir/build/bin/}
+  subdirectory to your path, so that the \code{clang} command will
+  refer to \tapir/LLVM and PClang.
+\end{enumerate}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Running the benchmark suite}\label{sec:experiment}
+
+This section describes how you can download the application benchmark
+suite described in \figref{bench} and test \tapir/LLVM on these
+benchmarks.
+\begin{enumerate}
+\item Install the requisite software to download and run the tests,
+  namely, \code{bc}, \code{libcilkrts}, \code{numactl}, \code{python},
+  \code{taskset}, and \code{wget}.
+
+\item Download the tarball containing the application benchmark suite
+  and unpack it:
+\begin{verbatim}
+$ wget http://tinyurl.com/TapirLLVMTesting -O testing.tar
+$ tar -xvf testing.tar
+\end{verbatim}
+  This tarball is approximately \fillintheblank{\SI{12}{\gibi\byte}}
+  in size.  Unpacking the tarball creates the \code{testing/}
+  subdirectory of the current working directory that contains the
+  application benchmark suite.
+
+\item Run the test script:
+\begin{verbatim}
+$ cd testing
+$ ./test.sh
+\end{verbatim}
+  The test script takes approximately \fillintheblank{7} hours to run.
+  The script compiles each benchmark in the test suite twice using
+  \tapir/LLVM: once as a parallel program, and once as the program's
+  serial elision.  All compilations use optimization level \code{-O3}.
+  The test script runs each compiled executable \fillintheblank{$10$}
+  times using $1$ worker thread and \fillintheblank{$10$} times using
+  \fillintheblank{$18$} worker threads.
+\end{enumerate}
+
+
+\section{Evaluation and expected result}\label{sec:evaluate}
+
+% {\em Obligatory}
+
+Once the test script finishes running, the results can be summarized
+into a table similar to \figref{benchnum} as follows:
+\begin{verbatim}
+$ ./results.sh > results.csv
+\end{verbatim}
+This command will produce \code{results.csv}, a table of tab-separated
+values that contains the minimum running time from each set of
+\fillintheblank{$10$} runs of a particular executable on a particular
+worker count.  The table also contains derived work-efficiency and
+parallel speedup values for each benchmark program.
+
+Because these results are performance measurements, they are likely to
+vary from run to run and from system to system.  Moreover, the Tapir team is
+continuing to develop the \tapir/\mbox{LLVM} compiler and PClang,
+meaning that your results will not precisely match those in
+\figref{benchnum}.
+
+You can write your own programs and compile them using PClang and
+Tapir/LLVM\@.  The PClang front end is \emph{not} a fully featured
+Cilk front end, however.  For more information on the source language
+parsed by PClang, please see
+\fillintheblank{\texttt{testing/PClang-README.txt}}.
+

@@ -1,0 +1,360 @@
+\chapput{newir}{Tapir}
+
+This chapter describes how \tapir represents logically parallel tasks
+asymmetrically in the CFG of a program.  I define \tapir's three new
+instructions and how they interact with LLVM's static
+single-assignment (SSA) form~\cite[Sec.~6.2.4]{AhoLaSe06}.  Although
+I describe \tapir as an extension to LLVM IR~\cite{LLVMLangManual15},
+the Tapir team sees no reason why other compilers cannot gain similar advantages
+from \tapir-like instructions.
+
+Like LLVM IR, \tapir treats a program function as a CFG $G=(V,E,v_0)$,
+where
+\begin{itemize}
+
+\item the set $V$ of vertices represents the function's \defn{basic
+    blocks}: sequences of LLVM instructions, where control flow can
+  only enter through the first instruction and leave from the last
+  instruction;
+
+\item the set $E$ of edges denote control flow between (basic) blocks;
+  and
+
+\item the designated vertex $v_0\in V$ represents the \defn{entry
+    point} of the function.
+
+\end{itemize}
+%LLVM IR supports a ``RISC'' instruction set with an infinite set of
+%register variables, as well as memory.  \tapir assumes that memory is
+%shared among all processors but that register state is local to each
+%processor.
+
+% LLVM IR also uses \defn{static single-assignment form}~\cite{???}.
+
+\section{\tapir instructions}
+
+\tapir extends LLVM IR with three instructions: \detach, \reattach,
+and \sync.  The \detach and \reattach instructions together delineate
+logically parallel tasks, and the \sync instruction imposes
+synchronization on parallel tasks.  The three instructions have the
+following syntax, where $b,c\in V$:
+\begin{inparcode}
+\code{detach label }$b$\code{, label }$c$\\
+\code{reattach label }$c$\\
+\code{sync}
+\end{inparcode}
+The \code{label} keywords indicate that $b$ and $c$ are (labels of)
+basic blocks in~$V$.
+
+% Conceptually, the \detach instruction is similar to a function call,
+% and the \reattach instruction is similar to a return.  
+
+The \detach and \reattach instructions together delineate a parallel
+task as follows.  A \detach instruction terminates the block $a$ that
+contains it and takes a \defn{detached} block $b$ and a
+\defn{continuation} block $c$ as its arguments.  The \detach
+instruction \defn{spawns} the task starting at block $b$, allowing
+that task to execute in parallel with block~$c$.  The control-flow
+edge $(a,b)\in E$ is a \defn{detach} edge, and the edge $(a,c)\in E$
+is a \defn{continue} edge.  A \reattach instruction, meanwhile,
+terminates the block $a'$ that contains it and takes a single
+\defn{continuation} block $c$ as its argument, inducing a
+\defn{reattach} edge $(a',c)\in E$ in the CFG\@.  The \reattach
+terminates the task spawned by a preceding \detach instruction with
+the same continuation block.  Together, a \detach instruction and
+associated \reattach instructions demark the start and end of a
+parallel task and indicate that that task can execute in parallel with
+their common continuation block.
+
+For the example in \subfigref{cfg}{d}, the \detach in the
+\code{if.else} block and the \reattach in the \code{det} block share
+the same continuation block \code{cont}.  Together, this \detach and
+this \reattach indicate that the \code{det} block is a parallel task
+which can execute in parallel with the \code{cont} block.  In general,
+a parallel task delineated by \detach and \reattach can consist of
+many basic blocks in a single-entry subgraph.
+
+% In a sense, \detach works like a function call to $b$ that resumes at
+% $c$ after the subcomputation rooted at $b$ returns, whereas \reattach
+% acts like a return.  But unlike a function call and return, $b$ is a
+% block within the CFG of the function containing it, rather than a
+% different function in the program, and $b$ and $c$ can operate in
+% parallel.
+
+% A \detach does not require that $b$ and $c$ execute in
+% parallel, but simply allows the runtime system to schedule them for
+% parallel execution, if it so desires.
+
+The \detach and \reattach instructions in a CFG obey several
+structural properties.  A \reattach instruction $j$
+\defn{reattaches} a \detach instruction $i$ if $i$ and $j$ share a
+common continuation block and there is a path from the detached block
+of $i$ to~$j$.  \tapir assumes that every CFG $G=(V,E,v_0)$ obeys the
+following invariants on every \detach instruction $i$ and \reattach
+instruction $j$ in~$G$:
+\begin{closeenum}
+
+\item A \reattach instruction reattaches exactly one \detach
+  instruction.
+
+\item If $j$ reattaches $i$, then every path from $v_0$ to the block
+  terminated by $j$ passes through the detach edge of~$i$, that is,
+  the detach edge of $i$ \defn{dominates}~$j$.
+
+\item Every path starting from the detached block of $i$ must reach a
+  block terminated by a \reattach instruction that reattaches~$i$.
+
+\item If $j$ reattaches $i$ and a path from $i$ to $j$ passes through
+  the detach edge of another \detach instruction $i'$, then it must
+  also pass through a \reattach instruction $j'$ that reattaches~$i'$.
+
+\item\label{const:acyclic} Every cycle containing a \detach
+  instruction $i$ must pass through a \reattach instruction that
+  reattaches~$i$.
+
+\item The continuation block of $j$ cannot contain any $\phi$
+  instructions~\cite[Sec~6.2.4]{AhoLaSe06}.
+
+\end{closeenum}
+These invariants imply that, at runtime, a \detach instruction $i$
+with detached block $b$ and continuation block $c$ spawns the
+execution of a \defn{detached sub-CFG}, which is the single entry
+sub-CFG starting at $b$ induced by all blocks on paths from $b$ to a
+\reattach instruction that reattaches~$i$.
+
+% A \detach instruction $i$ that detaches a block $b$ also
+% \defn{detaches} the single-entry sub-CFG of the current function
+% induced by all blocks on any path from $b$ to a \reattach instruction
+% that reattaches~$i$.  The \defn{continuation} of a CFG detached by $i$
+% is the continuation block of $i$, which matches the continuation block
+% of every \reattach instruction that reattaches~$i$.
+
+% The block $b$ must be a single-entry block for which
+% every exit from the sub-CFG reachable from $b$ --- the parallel task
+% spawned by $a$ --- is terminated by a \reattach whose continuation $c$
+% matches the continuation in the corresponding \detach instruction ---
+% the \detach instruction \defn{reattached} by the \reattach.  For each
+% such \reattach instruction, the CFG contains the \defn{reattach} edge
+% $(b',c)\in E$, where $b'$ is the block terminated by the \reattach.
+
+% Although memory state is shared among all parallel tasks in \tapir,
+The dynamic execution of the program organizes memory as a tree of
+\defn{parallel contexts}.  A new parallel context is created as a
+child of the current context when control enters a function or follows
+a detach edge.  When control executes a \reattach instruction or
+leaves a function, the context is destroyed and the parent's context
+becomes the current context.  An \code{alloca} instruction allocates
+shared memory in the current context.
+
+% Future to-do: Show parallel contexts in figures somehow.
+
+The \sync instruction synchronizes tasks spawned within its parallel
+context.  At runtime, a \sync instruction dynamically waits for the
+set of sub-CFG's detached in the same parallel context or any of its
+descendant parallel contexts to reach a \reattach instruction.  In the
+\tapir CFG illustrated in \subfigref{cfg}{d}, for example, the \sync
+instruction in the \code{cont} block simply waits for the execution of
+the \code{det} block to complete.  Unlike \reattach instructions,
+\sync instructions are not explicitly associated with \detach
+instructions, and they, in fact, can be executed within conditionals.
+A \sync instruction $j$ \defn{syncs} a \detach instruction $i$ if $i$
+and $j$ belong to the same parallel context and the CFG detached by
+$i$ cannot be guaranteed to have completed when $j$ executes.
+
+% The \detach instructions that $j$ might sync correspond to all
+% \detach instructions reachable in a reverse traversal of the CFG
+% from $j$ that does not pass through another \sync instruction nor
+% traverses a detach or a reattach edge.
+
+% Let us return to the \tapir CFG in \subfigref{cfg}{d} and see how
+% the three instructions are used to express the logical parallelism
+% of the \code{fib} program in \subfigreftwo{cfg}{a}{b}.  The \detach
+% instruction terminating the \code{if.else} block in
+% \subfigref{cfg}{d} allows blocks \code{det} and \code{cont} to
+% execute in parallel.  The \detach instruction thus creates the
+% detach edge $(\mbox{\code{if.else}}, \mbox{\code{det}})\in E$ and
+% the continue edge
+% $(\mbox{\code{if.else}}, \mbox{\code{cont}})\in E$.  The \reattach
+% instruction in the \code{det} block reattaches the \detach
+% instruction in the \code{if.else} block, terminating the basic block
+% \code{det} and creating the reattach edge
+% $(\mbox{\code{det}}, \mbox{\code{cont}})\in E$.
+
+
+\section{Static single-assignment form}
+
+LLVM's static single-assignment (SSA) form
+\cite[Sec.~6.2.4]{AhoLaSe06} must be adapted for \tapir programs.  SSA
+form ensures that each virtual register is set at most once in a
+function.  LLVM IR employs the \defn{$\boldmath \phi$ instruction}
+\cite[Sec~6.2.4]{AhoLaSe06} to combine definitions of a variable from
+different predecessors of a basic block.  In adapting SSA to \tapir,
+one concern is that a $\phi$ instruction might allow registers defined
+in the detached sub-CFG to be used in the continuation.  A basic block
+containing a $\phi$ instruction must avoid inheriting register
+definitions from predecessors that are connected by reattach edges.
+Otherwise, a register in the detached sub-CFG might not have been
+computed by the time the continuation executes.
+
+We implemented this constraint by simply forbidding reattach edges
+from going into basic blocks with $\phi$ instructions.  But what if
+the continuation $c$ of a \detach instruction begins with a $\phi$
+instruction?  In this case, \tapir creates a new basic block $c'$
+containing only a branch instruction to~$c$.  \tapir reroutes the reattach
+and continuation edges originally going to $c$ so that they go instead
+to~$c'$.  All other edges going to $c$ are left in place.
+
+The reason this solution works is as follows.  No reattach edges in
+the resulting CFG go to blocks containing $\phi$ instructions.
+Because a detached sub-CFG does not dominate any outside block,
+registers in the detached CFG can only be used in $\phi$ instructions
+of the immediate successors of the detached sub-CFG\@.  Since the
+continuation is the only immediate successor of the detached sub-CFG
+and it contains no $\phi$ instructions, no registers from the detached
+sub-CFG may be accessed in the continuation.
+
+
+\section{Asymmetry in \tapir}
+
+% The \detach, \reattach, and \sync instructions exhibit serial
+% semantics.  When executed on a single processor, a \detach instruction
+% acts like an unconditional branch to its detached block, and a
+% \reattach instruction acts like an unconditional branch to its
+% continuation block.  The CFG detached by a \detach instruction $d$
+% therefore precedes the execution of the continuation block of $d$ in a
+% serial execution.  A \sync instruction is therefore a no-op in a
+% serial execution.
+
+The \detach and \reattach instructions express parallel tasks
+asymmetrically both syntactically in the structure of the CFG and
+semantically in the way memory state is managed.  Both asymmetries are
+illustrated in \subfigref{cfg}{d}.
+
+First, the CFG detached by a \detach instruction is connected by a
+reattach edge to the continuation block of that instruction, even
+though they can execute in parallel.  For example, the reattach edge
+between \code{det} and \code{cont} in \subfigref{cfg}{d} breaks the
+symmetry between them.  Reattach edges reflect the serial semantics of
+a \tapir program, which dictates that a serial execution of the
+program executes the detached CFG to completion before starting to
+execute the continuation block.  In fact, the parallel task delineated
+by a \detach and a \reattach instruction can be \defn{serialized} by
+replacing the \detach instruction with an unconditional branch to its
+detached block and replacing the \reattach with an unconditional
+branch to its continuation block.  In contrast, parallel flow graphs
+and similar previously explored representations join logically
+parallel tasks in the CFG at a synchronization point.  By supporting
+separate \reattach and \sync instructions, \tapir decouples the
+termination of a parallel task from its synchronization.
+
+% An entire \tapir program can be serialized
+% as follows:
+% \begin{closeitemize}
+
+% \item Replace every \detach instruction by an unconditional branch to
+%   its detached block, which effectively removes the continue edge
+%   from~$E$.
+
+% \item Replace every \reattach instruction that reattach a \detach
+%   instruction $i$ with an unconditional branch to the continuation
+%   block of~$i$.
+
+% \item Remove all \sync instructions.
+
+% \end{closeitemize}
+% The resulting program is called the \defn{serial elision}
+% \cite{FrigoLeRa98} of the \tapir program, because all the parallelism
+% has been elided.  The serial elision contains no \tapir keywords and
+% is a serial LLVM program that employs standard LLVM~IR\@.
+
+Second, although memory state is shared among all parallel tasks in
+\tapir, a virtual register defined in a detached sub-CFG is not
+accessible in its parent parallel context.  For example, the
+continuation block \code{cont} in \subfigref{cfg}{d} cannot assume
+that the register value \code{x0} returned by \code{fib(n-1)} in block
+\code{det} is accessible, because the two basic blocks belong to
+different parallel contexts.  Thus, \code{cont} must load it again
+after the \sync instruction.
+
+% \tapir adopts LLVM's strategy for virtual register availability.  A
+% register defined in a basic block $a$ is only available to subsequent
+% instructions in~$a$, but not to instructions before the definition.
+% \wmnote{Potentially remove -- task 9}The register is only available
+% within a basic block $b$ if $a$ dominates~$b$.  As a result, virtual
+% registers defined in a detached sub-CFG are not available across
+% reattach edges.  Hence, to communicate data out of a detached sub-CFG,
+% the data must be transferred through shared memory and not through
+% registers.  In addition to preserving the fundamental invariants of
+% LLVM, which simplifies the implementation of \tapir/LLVM, this
+% behavior mimics what a runtime system must do more accurately than a
+% design in which registers from multiple parallel tasks are all
+% available after the tasks join.
+
+% \secref{analyses} shows how \tapir's asymmetric representation makes
+% it easy for existing compiler analyses to work with \tapir CFG's.
+
+\begin{figure}[t]
+\begin{tab}{c}
+\toprule
+\end{tab}
+\centering{%
+  \begin{tikzpicture}
+    \node [basic block, label=left:\fccode{entry:}] (entry)
+    {\parbox{3.6cm}{\fccode{\fc{k}{br} \fc{p}{(}0 \fc{o}{<} n\fc{p}{)}\fc{p}{,} head\fc{p}{,} exit}}};
+    \node [basic block, below= of entry, label=left:\fccode{head:}]
+    (head)
+    {\fccode{i0 \fc{o}{=} \fc{k}{$\phi$}\fc{p}{(}\fc{p}{[}0\fc{p}{,}entry\fc{p}{]}\fc{p}{,}\fc{p}{[}i1\fc{p}{,}inc\fc{p}{]}\fc{p}{)}}\\
+      \textcolor{red}{detach body\fc{p}{,} inc}};
+     \node [basic block, below= of head, label=left:\fccode{body:},
+     xshift=-1cm] (body)
+     {\fccode{norm0 \fc{o}{=} norm\fc{p}{(}in\fc{p}{,}n\fc{p}{)}}\\
+       \fccode{out\fc{o}{[}i0\fc{o}{]} \fc{o}{=} in\fc{o}{[}i0\fc{o}{]} \fc{o}{/} norm0}\\
+       \textcolor{red}{reattach inc}};
+     \node [basic block, below= of body, label=left:\fccode{inc:},
+     xshift=1cm] (inc) {
+       \fccode{i1 \fc{o}{=} i0 \fc{o}{+} \fc{l+m}{1}}\\
+       \fccode{\fc{k}{br} \fc{p}{(}i1 \fc{o}{<} n\fc{p}{)}\fc{p}{,} head\fc{p}{,} exit}};
+     \node [basic block, below= of inc, label=left:\fccode{exit:},
+     xshift=0cm, align=left] (exit)
+     {\parbox{2.6cm}{\textcolor{red}{sync}\\\fccode{\fc{k}{return}}}};
+    \path [cfedge]
+    (entry) edge node[right] {\small T} (head)
+    (head)  edge node [left, xshift=-.05cm] {\small detach} (body)
+    (head)  edge[bend left=58] node[right] {\small continue} (inc)
+    (body)  edge node[left] {\small reattach} (inc)
+    (inc)  edge[bend right=90] node[right] {\small T} (head)
+    (inc)  edge[] node[left] {\small F} (exit)
+    (entry)  edge[in=0,out=0] node[right] {\small F} (exit);
+  \end{tikzpicture}}
+\begin{tab}{c}
+\bottomrule
+\end{tab}
+\caption{\tapir CFG for the parallel loops in \figref{normalize}.}
+  \label{fig:tapir_normalize}
+\end{figure}
+
+\section{Parallel loops in \tapir}
+
+\figref{tapir_normalize} illustrates \tapir's default representation
+of the parallel loops from \figref{normalize}.  As
+\figref{tapir_normalize} shows, \tapir can represent a parallel loop
+in the CFG as an ordinary loop, where the \code{head} block repeatedly
+spawns the \code{body} block, and the \code{exit} block syncs the
+detached CFG's.  \chapref{opt} describes how this representation of
+parallel loops allows existing compiler loop optimizations to operate
+on \tapir parallel loops with only minor modifications.  Although this
+loop structure can exhibit poor parallel performance when the loop
+body is small, separate optimization passes in \tapir/\mbox{LLVM} (see
+\chapref{opt}) transform this parallel-loop representation into a
+divide-and-conquer form that exhibits good performance.
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:
+
+%  LocalWords:  LLVM multithreading multicore OpenMP Cilk GCC Cilk's
+%  LocalWords:  pseudocode metadata LLVM's bitcode codebase CFG's CFG
+%  LocalWords:  subexpression interleavings subcomputations runtime
+%  LocalWords:  vertices subcomputation OpenMP's

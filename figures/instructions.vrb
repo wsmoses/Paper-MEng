@@ -1,0 +1,5 @@
+\begin{CodeFigVerbatim}[baseline=t,baselinestretch=1,fontsize=\fontsize{8.5}{10.2},numbers=left]
+detach label <detached>, label <continuation>
+reattach label <continuation>
+sync
+\end{CodeFigVerbatim}

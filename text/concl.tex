@@ -1,0 +1,58 @@
+\chapput{concl}{Conclusion}
+
+To conclude, I would like to leave the reader with three interesting
+considerations regarding the nature of asymmetry in parallelism, the
+future of parallel optimizations, and extensions of \tapir-like
+systems to other models of parallel programming.
+
+Reasoning about logically parallel tasks asymmetrically based on
+serial semantics can sometimes simplify the understanding of a
+parallel program's behavior.  When a task is spawned to execute in
+parallel with another, it is natural to reason about the logically
+parallel tasks as symmetric, because their instructions can execute in
+any relative order.  For parallel programs with serial semantics,
+however, it is always valid to execute the program on a single
+processor, which asymmetrically executes one parallel task to
+completion before starting the other.  Serial semantics encourage an
+asymmetric representation of parallel control flow that is similar
+enough to its serial elision that most common analyses and
+transformations for serial programs work on parallel constructs with
+little or no modification.  In particular, serial semantics enables
+common optimizations on parallel code that can be invalid under other
+models of parallelism~\cite{VafeiadisBaCh15}.
+
+One of the great benefits of \tapir is that its strategy for
+representing parallelism makes it easy to write optimization passes
+specifically for parallel code.  \chapref{opt} briefly mentioned some
+parallel optimization passes we implemented, including parallel-loop
+scheduling and unnecessary-sync elimination.  In addition to helping
+close the performance gap between serial and parallel versions of
+code, we hope that the introduction of \tapir will encourage the
+development and implementation of many more parallel-optimization
+passes.
+
+Finally, \tapir allows fork-join parallel programs to benefit from
+both serial and parallel optimizations.  Moving forwards, it is
+natural to wonder whether other models of parallelism, such as
+pipeline parallelism \cite{LeeLeSc15, NavarroAsTa09, DuFeAg03} or
+data-graph computations \cite{LowGoKy10, LowBiGo12, MalewiczAuBi10,
+  NguyenLePi13, NguyenLePi14, ShunBl13, ShunDhBl15}, can take
+advantage of the \tapir approach.
+
+
+% \begin{closeitemize}
+% \item The \code{testCilk.sh} script will recompile and rerun all tests
+%   from the MIT Cilk benchmark test suite.
+
+% \item The \code{testIntel.sh} script will recompile and rerun all
+%   tests from the set of Intel Cilk Plus example programs.
+
+% \item The \code{testPBBS.sh} script will recompile and rerun all tests
+%   from the CMU Problem-Based Benchmark Suite.
+% \end{closeitemize}
+
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:

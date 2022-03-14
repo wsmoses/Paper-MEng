@@ -1,0 +1,87 @@
+\chapput{related}{Related work}
+
+This chapter describes related work in representing parallelism in a
+compiler IR and in analyzing and optimizing parallel programs.
+
+Various prior research explores compiler optimizations on unstructured
+parallel threads.  For example, some researchers have explored how to
+find and remove unnecessary synchronization in Java programs
+\cite{AldrichChSi99, Ruf00}.  Joisha \textit{et al}.\@
+\cite{JoishaScBa11} present a technique to detect instructions that
+are unaffected by parallel threads and can be safely optimized across
+unstructured parallel control flow.  In contrast, our work on \tapir
+focuses on compiler optimizations for structured parallelism, namely
+fork-join parallel programs with serial semantics.  Although fork-join
+parallelism may be more restricted than unstructured parallel threads,
+\tapir demonstrates that many of the optimizations for serial code
+easily extend to fork-join parallelism.  Enabling similar
+optimizations for unstructured parallel threads appears to be a much
+harder problem.
+
+Some previous work on compiler optimizations for fork-join parallel
+programs evaluate which instructions can safely execute in parallel
+\cite{AgarwalBaSa07} based on concurrency mechanisms supported by a
+particular memory model.  For example, Barik \textit{et al.}\@
+\cite{BarikSa09, BarikZhSa13} use interprocedural analysis to perform
+various optimizations affecting critical sections of X10 and
+Habanero-Java programs.  Rather than dealing with the complexities of
+general concurrency mechanisms, \tapir enables compiler optimizations
+for an easy-to-understand situation: when the optimization respects
+the serial semantics of the program and does not introduce determinacy
+races.  Compared with general concurrency mechanisms, well-structured
+parallelism seems to offer a less onerous path to performance.
+
+% \tapir embeds logical fork-join parallelism, as distinct
+% from concurrency, into a compiler~IR\@.
+
+% Pop and Cohen\ \cite{PopCo10} propose a scheme to translate OpenMP
+% parallel constructs into function calls in the IR that convey their
+% semantics.  Although new optimizations can perform optimizations based
+% on these function calls, existing compiler optimizations treat them as
+% opaque, inhibiting them from performing most optimizations to
+% avoid creating incorrect code.  In contrast, \tapir enables
+% existing compiler optimizations to operate across parallel control
+% flow.
+
+Khaldi \textit{et al}.\@ \cite{KhaldiJoIr15} modify LLVM IR to support
+OpenSHMEM parallel programs with the aim of achieving performance in
+modern network interconnects that support efficient data transfers for
+partitioned global address spaces (PGAS).  Based on the SPIRE
+methodology \cite{KhaldiJoAn12} for representing parallel code, they
+augment functions, basic blocks, instructions, identifiers, and types
+in LLVM IR with execution, synchronization, scheduling, and
+memory-layout information.  In contrast, \tapir models fork-join
+parallelism for shared-memory multicores, a conceptually simpler
+context than PGAS systems, and extends LLVM IR minimally using only
+three instructions.  Once again, the \tapir's strong assumption of a
+fork-join programming model with serial semantics that compiles to a
+flexible multicore architecture seems to provide both performance and
+simplicity, albeit at the cost of scalability to huge cluster-based
+supercomputers that lack strong memory-consistency guarantees.
+
+
+% Joisha \textit{et al}.\ \cite{JoishaScBa11} introduces the procedural
+% concurrency graph to identify procedures that can execute
+% concurrently, in order to identify siloed references, which
+% compilers can safely optimize across parallel control flow.
+
+In contrast with much of the work referenced above, Chatarasi
+\textit{et al}.\@ \cite{ChatarasiShSa15} focus, as \tapir does, on
+fork-join programs with serial semantics.  Specifically, they examine
+polyhedral optimizations on OpenMP programs with serial semantics.  By
+combining dependency and happens-before analyses, they manage
+to enable traditional polyhedral optimizers to work on parallel loops,
+much as \tapir enables common middle-end compiler optimizations to
+work on parallel code.
+
+
+
+
+
+% \tapir embeds fork-join parallelism with serial semantics into LLVM IR
+% to enable general compiler optimizations.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:

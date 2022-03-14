@@ -1,0 +1,769 @@
+\chapput{eval}{Evaluation}
+
+To evaluate the effectiveness of the approach, the \tapir team evaluated
+\tapir/LLVM on \fillintheblank{$20$} benchmarks.  The experiments
+support the contention that \tapir's approach of embedding parallelism
+in the IR is superior to lowering parallelism in the compiler front
+end.  We could not simply run \tapir/LLVM against another compiler,
+such as Cilk Plus/LLVM \cite{CilkPlusLLVM13}, which lowers parallelism
+in the front end, because Cilk Plus/LLVM and \tapir/LLVM differ in
+more ways than just where they lower parallel constructs.
+Consequently, to perform an apples-to-apples comparison of these two
+approaches, we implemented a compiler called ``Reference,'' which is
+as close to identical to \tapir/LLVM as we could muster, except for
+where lowering occurs.  \figref{pipeline} illustrates the compilation
+pipelines for Clang/LLVM, \tapir/LLVM, and Reference.
+
+\begin{figure}[t]
+\small
+\begin{tab}{c}
+\toprule
+\end{tab}
+\centering
+  \begin{tikzpicture}[auto, node distance=.15cm and 1.4cm]
+    \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut \tapirllvm}}}}] (code1) {Parallel\\Code};
+    \node [process, below= of code1] (clang1) {PClang};
+
+    \node [process, right= of clang1] (clang2) {PClang};
+    \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut Reference}}}}, above=of clang2] (code2) {Parallel\\Code};
+
+    \node [form, below= of clang2] (tapir2) {Tapir};
+
+    \node [process, below= of tapir2] (lower2) {Lower};
+    \node [form, below= of lower2] (ir2) {LLVM};
+    \node [process, below= of ir2] (opt2) {\texttt{-O3}};
+
+    \node [form, below= of opt2] (oir2) {LLVM};
+
+    \node [process, below= of oir2] (llower2) {Lower};
+    \node [form, below= of llower2] (loir2) {LLVM};
+
+    \node [process, below= of loir2] (oopt2) {\texttt{-O3}};
+    \node [form, below= of oopt2] (ooir2) {LLVM};
+    \node [process, below= of ooir2] (cg2) {CodeGen};
+    \node [form, below= of cg2] (exe2) {EXE};
+
+    \draw [->] (code2) -- node {} (clang2);
+    \draw [->] (clang2) -- node {} (tapir2);
+    \draw [->] (tapir2) -- node {} (lower2);
+    \draw [->] (lower2) -- node {} (ir2);
+    \draw [->] (ir2) -- node {} (opt2);
+    \draw [->] (opt2) -- node {} (oir2);
+    \draw [->] (oir2) -- node {} (llower2);
+    \draw [->] (llower2) -- node {} (loir2);
+    \draw [->] (loir2) -- node {} (oopt2);
+    \draw [->] (oopt2) -- node {} (ooir2);
+    \draw [->] (ooir2) -- node {} (cg2);
+    \draw [->] (cg2) -- node {} (exe2);
+
+    \node [process, left= of opt2] (opt1) {\texttt{-O3}};
+    \node [form, above= of opt1] (tapir1) {Tapir};
+    \node [form, below= of opt1] (otapir1) {Tapir};
+    \node [process, below= of otapir1] (lower1) {Lower};
+    \node [form, below= of lower1] (ir1) {LLVM};
+    \node [process, below= of ir1] (oopt1) {\texttt{-O3}};
+    \node [form, below= of oopt1] (oir1) {LLVM};
+    \node [process, below= of oir1] (cg1) {CodeGen};
+    \node [form, below= of cg1] (exe1) {EXE};
+
+    \draw [->] (code1) -- node {} (clang1);
+    \draw [->] (clang1) -- node {} (tapir1);
+    \draw [->] (tapir1) -- node {} (opt1);
+    \draw [->] (opt1) -- node {} (otapir1);
+    \draw [->] (otapir1) -- node {} (lower1);
+    \draw [->] (lower1) -- node {} (ir1);
+    \draw [->] (ir1) -- node {} (oopt1);
+    \draw [->] (oopt1) -- node {} (oir1);
+    \draw [->] (oir1) -- node {} (cg1);
+    \draw [->] (cg1) -- node {} (exe1);
+
+%%%%%%%%%%%%
+%     \node [process, right= of clang2] (clang3) {PClang};
+%     \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut Serial}}}}, above=of clang3] (code3) {Serial\\Code};
+% 
+%     \node [process, right= of opt2] (opt3) {\texttt{-O3}};
+%     \node [form, above= of opt3] (otapir3) {LLVM};
+% 
+%     \node [form, below= of opt3] (ir3) {LLVM};
+%     \node [process, right= of oopt2] (oopt3) {\texttt{-O3}};
+%     \node [form, below= of oopt3] (oir3) {LLVM};
+%     \node [process, right= of cg2] (cg3) {CodeGen};
+%     \node [form, below= of cg3] (exe3) {EXE};
+% 
+%     \draw [->] (code3) -- node {} (clang3);
+%     \draw [->] (clang3) -- node {} (otapir3);
+%     \draw [->] (otapir3) -- node {} (opt3);
+%     \draw [->] (opt3) -- node {} (ir3);
+%     \draw [->] (ir3) -- node {} (oopt3);
+%     \draw [->] (oopt3) -- node {} (oir3);
+%     \draw [->] (oir3) -- node {} (cg3);
+%     \draw [->] (cg3) -- node {} (exe3);
+% 
+% %%%%%%%%%%%%
+
+    \node [process, left= of clang1] (clang0) {Clang};
+    \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut Clang/LLVM}}}}, above=of clang0] (code0) {Serial\\Code};
+
+    \node [process, left= of oopt1] (oopt0) {\texttt{-O3}};
+    \node [form, above= of oopt0] (ir0) {LLVM};
+    \node [form, below= of oopt0] (oir0) {LLVM};
+    \node [process, left= of cg1] (cg0) {CodeGen};
+    \node [form, below= of cg0] (exe0) {EXE};
+
+    \draw [->] (code0) -- node {} (clang0);
+    \draw [->] (clang0) -- node {} (ir0);
+    \draw [->] (ir0) -- node {} (oopt0);
+    \draw [->] (oopt0) -- node {} (oir0);
+    \draw [->] (oir0) -- node {} (cg0);
+    \draw [->] (cg0) -- node {} (exe0);
+
+
+%%%%%%%%%%%%%%%
+
+    %\draw [->, red, ultra thick] (lower1.north east) -- node {} (lower2.south west);
+    %\draw [->, red, ultra thick] (opt1.south east) -- node {} (opt2.north west);
+
+  \end{tikzpicture}
+
+%   \tikzstyle{process} = [draw, fill=orange!50, rectangle, minimum height=2.5em, minimum width=4.5em, align=center]
+%   \tikzstyle{form} = [draw, fill=blue!30, ellipse, minimum height=1em, align=center,font=\footnotesize]
+
+% \centering
+% \begin{tikzpicture}[auto, node distance=.15cm and .65cm]
+%     \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut \tapir/LLVM}}}}] (code1) {Parallel\\Code};
+%     \node [process, below= of code1] (clang1) {PClang};
+%     \node [form, below= of clang1] (tapir1) {TAPIR};
+%     \node [process, below= of tapir1] (opt1) {\texttt{-O3}};
+%     \node [form, below= of opt1] (otapir1) {TAPIR};
+%     \node [process, below= of otapir1] (lower1) {Lower};
+%     \node [form, below= of lower1] (ir1) {LLVM};
+%     \node [process, below= of ir1] (oopt1) {\texttt{-O3}};
+%     \node [form, below= of oopt1] (oir1) {LLVM};
+%     \node [process, below= of oir1] (cg1) {CodeGen};
+%     \node [form, below= of cg1] (exe1) {EXE};
+
+%     \draw [->] (code1) -- node {} (clang1);
+%     \draw [->] (clang1) -- node {} (tapir1);
+%     \draw [->] (tapir1) -- node {} (opt1);
+%     \draw [->] (opt1) -- node {} (otapir1);
+%     \draw [->] (otapir1) -- node {} (lower1);
+%     \draw [->] (lower1) -- node {} (ir1);
+%     \draw [->] (ir1) -- node {} (oopt1);
+%     \draw [->] (oopt1) -- node {} (oir1);
+%     \draw [->] (oir1) -- node {} (cg1);
+%     \draw [->] (cg1) -- node {} (exe1);
+
+
+%     \node [process, right= of clang1] (clang2) {PClang};
+%     \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut Reference}}}}, above=of clang2] (code2) {Parallel\\Code};
+
+%     \node [form, below= of clang2] (tapir2) {TAPIR};
+
+%     \node [process, right= of opt1] (lower2) {Lower};
+%     \node [form, below= of lower2] (otapir2) {LLVM};
+%     \node [process, right= of lower1] (opt2) {\texttt{-O3}};
+
+%     \node [form, below= of opt2] (ir2) {LLVM};
+%     \node [process, right= of oopt1] (oopt2) {\texttt{-O3}};
+%     \node [form, below= of oopt2] (oir2) {LLVM};
+%     \node [process, right= of cg1] (cg2) {CodeGen};
+%     \node [form, below= of cg2] (exe2) {EXE};
+
+%     \draw [->] (code2) -- node {} (clang2);
+%     \draw [->] (clang2) -- node {} (tapir2);
+%     \draw [->] (tapir2) -- node {} (lower2);
+%     \draw [->] (lower2) -- node {} (otapir2);
+%     \draw [->] (otapir2) -- node {} (opt2);
+%     \draw [->] (opt2) -- node {} (ir2);
+%     \draw [->] (ir2) -- node {} (oopt2);
+%     \draw [->] (oopt2) -- node {} (oir2);
+%     \draw [->] (oir2) -- node {} (cg2);
+%     \draw [->] (cg2) -- node {} (exe2);
+
+% %%%%%%%%%%%%
+%     \node [process, right= of clang2] (clang3) {PClang};
+%     \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut Serial}}}}, above=of clang3] (code3) {Serial\\Code};
+
+%     \node [process, right= of opt2] (opt3) {\texttt{-O3}};
+%     \node [form, above= of opt3] (otapir3) {LLVM};
+
+%     \node [form, below= of opt3] (ir3) {LLVM};
+%     \node [process, right= of oopt2] (oopt3) {\texttt{-O3}};
+%     \node [form, below= of oopt3] (oir3) {LLVM};
+%     \node [process, right= of cg2] (cg3) {CodeGen};
+%     \node [form, below= of cg3] (exe3) {EXE};
+
+%     \draw [->] (code3) -- node {} (clang3);
+%     \draw [->] (clang3) -- node {} (otapir3);
+%     \draw [->] (otapir3) -- node {} (opt3);
+%     \draw [->] (opt3) -- node {} (ir3);
+%     \draw [->] (ir3) -- node {} (oopt3);
+%     \draw [->] (oopt3) -- node {} (oir3);
+%     \draw [->] (oir3) -- node {} (cg3);
+%     \draw [->] (cg3) -- node {} (exe3);
+
+% %%%%%%%%%%%%
+
+%     \node [process, left= of clang1] (clang0) {Clang};
+%     \node [form, label={[yshift=0cm,xshift=0cm]{\textbf{\emph{\strut LLVM}}}}, above=of clang0] (code0) {Serial\\Code};
+
+%     \node [process, left= of oopt1] (oopt0) {\texttt{-O3}};
+%     \node [form, above= of oopt0] (ir0) {LLVM};
+%     \node [form, below= of oopt0] (oir0) {LLVM};
+%     \node [process, left= of cg1] (cg0) {CodeGen};
+%     \node [form, below= of cg0] (exe0) {EXE};
+
+%     \draw [->] (code0) -- node {} (clang0);
+%     \draw [->] (clang0) -- node {} (ir0);
+%     \draw [->] (ir0) -- node {} (oopt0);
+%     \draw [->] (oopt0) -- node {} (oir0);
+%     \draw [->] (oir0) -- node {} (cg0);
+%     \draw [->] (cg0) -- node {} (exe0);
+
+
+% %%%%%%%%%%%%%%%
+
+%     %\draw [->, red, ultra thick] (lower1.north east) -- node {} (lower2.south west);
+%     %\draw [->, red, ultra thick] (opt1.south east) -- node {} (opt2.north west);
+
+% \end{tikzpicture}
+\begin{tab}{c}
+\bottomrule
+\end{tab}
+\caption[The compilation pipelines for Clang/LLVM, \tapir/LLVM, and
+  Reference.]{The compilation pipelines for Clang/LLVM, \tapir/LLVM, and
+  Reference.  Each block represents a compiler transformation, and
+  each oval designates the format of the code at that point in the
+  pipeline.}
+  \label{fig:pipeline}
+\end{figure}
+
+
+The first pipeline, Clang/LLVM, has the traditional three-phase
+structure.  The Clang front-end takes serial C/C++ code and emits
+LLVM~IR\@.  The \code{-O3} middle-end optimizes the IR, and the
+CodeGen back-end lowers LLVM IR to machine code for a particular
+hardware platform.
+
+The second pipeline shows how \tapir/LLVM is organized.  The PClang
+front end takes parallel Cilk Plus code as input and emits
+\tapir.  The middle-end now consists of three steps: \code{-O3}
+optimization, a Lower pass to lower \tapir to LLVM IR, and another
+pass at \code{-O3} optimization.  The first \code{-O3} pass performs
+optimizations on the \tapir representation, the lowering pass
+translates all the \tapir-specific constructs to LLVM IR, and the
+second \code{-O3} pass performs optimizations on the LLVM~IR\@.
+Finally, the CodeGen back end lowers LLVM IR to machine code.
+
+The third pipeline, called Reference, models how mainstream compilers
+work today, where parallel constructs are transformed into runtime
+calls before any optimization can take place.  The only difference
+between Reference and \tapir/LLVM is that the \tapir code emitted by
+the PClang front end is immediately lowered to LLVM IR before the rest
+of the Tapir pipeline is invoked.  (The second Lower pass in the
+Reference pipeline therefore has no effect.)  Although Reference
+lowers the parallel constructs early, two iterations of \code{-O3} are
+included to ensure that the \tapir/LLVM gains no advantage from
+optimizing twice.  Although one might think that a second pass of
+\code{-O3} would be redundant, it is not.  For example, a simple
+matrix-multiplication code runs $13\%$ faster after two rounds of
+optimization compared to just one.  And although most benchmarks run
+faster after two \code{-O3} passes, some actually run slower.  Thus,
+we implemented Reference with the same passes as \tapir/LLVM, except
+for the initial Lower pass in Reference.  This difference only affects
+parallel code.  Serial code passes through both pipelines identically.
+
+% \tbsnote{Rewrite this; serial code now does pass through \tapirllvm
+%   and Reference identically.}
+% For an ideal scientific comparison, serial code should pass through
+% \tapir/LLVM and Reference identically.  Unfortunately, the Lower pass
+% performs some transformations on the IR, such as simplifying the CFG
+% before lowering.  Consequently, the order of transformations is not
+% exactly identical between \tapir/LLVM and Reference, which can result
+% in different compiled code.  The \fillintheblank{$20$} benchmarks were
+% selected for their stability in the face of different orders of
+% optimization passes, and the performance of generated code for each of
+% these benchmarks seems to vary by less than~$2\%$.  Thus, we have
+% confidence that the \tapir/LLVM and Reference compilers are
+% essentially the same, except for where they lower the parallelism
+% constructs.
+
+% Thus, we establish two pipelines for compilation as shown in 
+% We use two modes of compilation, termed \tapir/LLVM and Reference. The compilation
+% pipeline for \tapir/LLVM (depicted in the middle column) is as follows. Clang takes Cilk code and emits LLVM IR with
+% \tapir constructs. The compiler then performs optimizations on the \tapir
+% representation of the parallel code. The new instructions are then lowered to runtime calls.
+% An additional round of optimization is then performed to optimize these runtime calls.
+% 
+% The compilation pipeline for Reference removes any optimizations at the \tapir level
+% and instead performs two rounds of optimization after the code has been lowered
+% to runtime calls. Two rounds of optimization are performed here to counter-balance the
+% fact that two rounds of optimization in \tapir/LLVM. Suprising to some, and unsuprising to
+% others running two rounds of optimization can dramatically change performance. In a simple
+% matrix multiply code, for example, running two rounds of optimization improves performance
+% by 13\%.
+% 
+% Overall, the Reference pipeline resembles the form that is currently done in most
+% compilers -- where the parallel constructs are transformed into runtime calls before
+% any optimization can take place. Additionally because it is implemented on the same codebase,
+% with identitical optimization passes run, Reference is directly comparable
+% with the \tapir/LLVM implementation. Thus these pipelines allows us to most effectively compare the impact of the
+% \tapir representation as it allows us to isolate how running optimizations
+% on \tapir impacts performance.
+
+%We then began by running direct
+%compiler-to-compiler comparisions against existing Cilk implementations such as
+%GCC and Cilkplus/LLVM. However, this resulted in performance numbers that were
+%affected by other compiler formes such as differences in register allocation,
+%differences in the implementation of the closures passed to Cilk, and many benchmarks
+%which failed to run on existing compilers.
+
+%In order to most fairly evaluate the runtime impact of tapir, we needed a
+%compiler to compare against whose only difference was that \tapir/LLVM was able
+%to perform optimizations across parallel control-flow. To determine how best
+%this may be accomplished, we first evaluated our current compilation pipeline.
+
+
+%To serve as an accurate comparison, we then created Runtime/LLVM.
+%In contrast to \tapir/LLVM, no optimizations are done while the code is in the \tapir representation.
+%Thus all optimizations must are done with the code in runtime calls, as is currently done by all compilers.
+%Additionally, unlike \tapir/LLVM, two rounds of optimization are performed after the code has been lowered to
+%runtime calls. This ensures that both compilers run two rounds of optimization. This is necessary to ensure
+%a fair comparison because many LLVM optimizations are indempotent and running two rounds of optimization
+%give a compiler an unfair advantage. For example, when run on serial code for matrix multiplication
+%running two rounds of optimization gave a 13\% performance increase over one round of optimization.
+
+
+\begin{figure}[t]
+  \small
+  \begin{tab}{rrl}
+    \toprule
+    \multicolumn{1}{c}{\textit{Suite}} &
+    \multicolumn{1}{c}{\textit{Benchmark}} &
+    \multicolumn{1}{l}{\textit{Description}}
+    \\
+    \midrule
+    \textit{Cilk}
+    & Cholesky        & Cholesky decomposition \\
+    & FFT             & Fast Fourier transform \\
+    & NQueens         & $n$-Queens solver \\
+    & QSort           & Hoare quicksort \\
+    & RectMul         & Rectangular matrix multiplication \\
+    & Strassen        & Strassen matrix multiplication\\
+    \midrule
+    \textit{Intel}
+    & AvgFilter       & Averaging filter on an image \\
+    & Mandel          & Mandelbrot set computation \\
+    \midrule
+    \textit{PBBS}
+    & CHull           & Convex hull \\
+    & detBFS          & BFS, deterministic algorithm \\
+    & incMIS          & MIS, incremental algorithm \\
+    & incST           & Spanning tree, incremental algorithm \\
+    & kdTree          & Performance test of a parallel $k$-d tree \\
+    & ndBFS           & BFS, nondeterministic algorithm \\
+    & ndMIS           & MIS, nondeterministic algorithm \\
+    & ndST            & Spanning tree, nondeterministic algorithm \\
+    & parallelSF      & Spanning-forest computation \\
+    & pRange          & Compute ranges on a parallel suffix array\\
+    & radixSort       & Radix sort \\
+    & SpMV            & Sparse matrix-vector multiplication \\
+    % This is how Bentley typeset it. 
+    \bottomrule
+  \end{tab}
+  \caption[Descriptions of the \protect\fillintheblank{$20$}
+    benchmarks used to evaluate \tapirllvm]{Descriptions of the \protect\fillintheblank{$20$}
+    benchmarks used to evaluate \tapirllvm.  These benchmarks were
+    taken from the MIT Cilk benchmark suite \cite{FrigoLeRa98}, Intel
+    Cilk Plus example programs \cite{IntelCilkSamples}, and the CMU
+    Problem-Based Benchmark Suite~\cite{ShunBlFi12}.  ``MIS'' denotes
+    the computation of a maximal independent set of a graph.  ``BFS''
+    denotes the breadth-first search of a graph.}
+  \label{fig:bench}
+\end{figure}
+
+\tbsnote{Edit benchmark names for consistent capitalization.}
+
+\begin{figure*}[t]
+\footnotesize
+\sisetup{table-format=2.3}
+\begin{tab}{llSSSSSSSSSS}
+\toprule
+& & {Cholesky} & {FFT} & {NQueens} & {QSort} & {RectMul} & {Strasssen}
+& {AvgFilter} \\
+
+\midrule
+\multirow{2}{*}{$T_S$}
+& Ref.
+&  2.935 & 10.304 &  3.084 &  4.983 & 10.207 & 10.105
+&  1.751 \\
+& \tapir
+&  2.933 & 10.271 &  3.083 &  4.984 & 10.207 & 10.119
+&  1.750 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$T_1$}
+& Ref.
+&  6.581 & 10.413 & 10.196
+&  2.355 & 30.520 &  1.316 &  6.596 \\
+& \tapir
+&  6.461 & 10.415 & 10.196
+&  1.730 & 25.774 &  1.187 &  5.673 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$T_{18}$}
+& Ref.
+&  0.648 &  0.609 &  1.106
+&  0.708 &  1.847 &  0.124 &  0.517 \\
+& \tapir
+&  0.709 &  0.611 &  1.124
+&  0.615 &  1.559 &  0.120 &  0.467 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$\displaystyle \frac{T_S}{T_1}$}
+& Ref.
+&  0.757 &  0.980 &  0.991
+&  0.743 &  0.845 &  0.710 &  0.801 \\
+& \tapir
+&  0.771 &  0.980 &  0.991
+&  1.012 &  1.000 &  0.788 &  0.992 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$\displaystyle \frac{T_S}{T_{18}}$}
+& Ref.
+&  7.690 & 16.760 &  9.137
+&  2.472 & 13.957 &  7.540 &  9.518 \\
+& \tapir
+&  7.028 & 16.705 &  8.990
+&  2.846 & 16.536 &  7.792 & 10.942 \\
+
+\specialrule{\heavyrulewidth}{\aboverulesep}{\belowrulesep}
+& & {Mandel} & {CHull} & {detBFS} 
+& {incMIS} & {incST} & {kdTree} 
+& {ndBFS} \\
+%& {ndMIS} & {ndST} & {parallelSF} & {pRange} & {radixSort} & {SpMV} \\
+
+\midrule
+\multirow{2}{*}{$T_S$}
+& Ref.
+ & 25.779 &  0.938 &  5.670
+ &  4.993 &  4.190 &  5.473 &  3.950 
+%&  9.210 &  4.069
+%&  5.136 &  2.564 &  3.775 &  1.780 
+\\
+& \tapir
+& 25.780 &  0.935 &  5.666 
+&  5.006 &  4.173 &  5.466 &  3.956 
+%&  9.253 &  4.053
+%&  5.136 &  2.559 &  3.775 &  1.783 
+\\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$T_1$}
+& Ref.   
+&  4.572 & 11.919 &  3.409 
+&  6.030 &  4.733 &  5.640 &  4.930 
+%& 10.760 &  4.286
+%&  5.646 &  3.438 &  3.795 &  1.836 
+\\
+& \tapir
+&  4.739 & 11.733 &  3.419 
+&  5.043 &  4.203 &  5.546 &  3.980 
+%&  9.246 &  4.063
+%&  5.183 &  3.083 &  3.800 &  1.786 
+\\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$T_{18}$}
+& Ref.
+&  0.387 &  0.788 &  0.196 
+&  0.559 &  0.352 &  0.342 &  0.415 
+%&  0.774 &  1.925
+%&  0.414 &  0.348 &  0.284 &  0.118 
+\\
+& \tapir
+&  0.396 &  0.774 &  0.197 
+&  0.527 &  0.329 &  0.339 &  0.361 
+%&  0.701 &  1.692
+%&  0.392 &  0.330 &  0.285 &  0.112 
+\\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$\displaystyle \frac{T_S}{T_1}$}
+& Ref.
+&  0.642 &  0.862 &  0.904 
+&  0.828 &  0.882 &  0.969 &  0.801 
+%&  0.856 &  0.946
+%&  0.910 &  0.744 &  0.995 &  0.969 
+\\
+& \tapir
+&  0.619 &  0.875 &  0.902 
+&  0.990 &  0.993 &  0.986 &  0.992 
+%&  0.996 &  0.998
+%&  0.991 &  0.830 &  0.993 &  0.997 
+\\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$\displaystyle \frac{T_S}{T_{18}}$}
+& Ref.
+&  7.579 & 13.034 & 15.730 
+&  8.932 & 11.855 & 15.982 &  9.518 
+%& 11.899 &  2.105
+%& 12.406 &  7.353 & 13.292 & 15.085 
+\\
+& \tapir
+&  7.407 & 13.270 & 15.650 
+&  9.474 & 12.684 & 16.124 & 10.942 
+%& 13.138 &  2.395
+%& 13.102 &  7.755 & 13.246 & 15.893 
+\\
+
+
+\specialrule{\heavyrulewidth}{\aboverulesep}{\belowrulesep}
+& & {ndBFS} & {ndMIS} & {ndST}
+& {parallelSF} & {pRange} & {radixSort} & {SpMV} \\
+
+\midrule
+\multirow{2}{*}{$T_S$}
+& Ref.
+&  3.950 &  9.210 &  4.069
+&  5.136 &  2.564 &  3.775 &  1.780 \\
+& \tapir
+&  3.956 &  9.253 &  4.053
+&  5.136 &  2.559 &  3.775 &  1.783 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$T_1$}
+& Ref.   
+&  4.930 & 10.760 &  4.286
+&  5.646 &  3.438 &  3.795 &  1.836 \\
+& \tapir
+&  3.980 &  9.246 &  4.063
+&  5.183 &  3.083 &  3.800 &  1.786 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$T_{18}$}
+& Ref.
+&  0.415 &  0.774 &  1.925
+&  0.414 &  0.348 &  0.284 &  0.118 \\
+& \tapir
+&  0.361 &  0.701 &  1.692
+&  0.392 &  0.330 &  0.285 &  0.112 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$\displaystyle \frac{T_S}{T_1}$}
+& Ref.
+&  0.801 &  0.856 &  0.946
+&  0.910 &  0.744 &  0.995 &  0.969 \\
+& \tapir
+&  0.992 &  0.996 &  0.998
+&  0.991 &  0.830 &  0.993 &  0.997 \\
+
+\addlinespace[0.5ex]
+\multirow{2}{*}{$\displaystyle \frac{T_S}{T_{18}}$}
+& Ref.
+&  9.518 & 11.899 &  2.105
+& 12.406 &  7.353 & 13.292 & 15.085 \\
+& \tapir
+& 10.942 & 13.138 &  2.395
+& 13.102 &  7.755 & 13.246 & 15.893 \\
+\bottomrule
+\end{tab}
+\caption[Numbers for performance comparison between Reference and
+  \tapir/LLVM.]{Comparison between executables compiled using Reference and
+  using \tapir/LLVM\@.  Each column refers to a different parallel
+  benchmark described in \figref{bench}.  Rows labeled ``Ref.''
+  describe executables compiled using Reference, and rows labeled
+  ``\tapir'' describe executables compiled using \tapirllvm.  Each
+  measured running time is the minimum over $10$ executions, measured
+  in seconds.  The pair of rows labeled $T_S$ gives the running time
+  of the executable compiled from the serial elision of each
+  benchmark.  The pair of rows labeled $T_1$ gives the work of each
+  benchmark.  The pair of rows labeled $T_{18}$ gives the $18$-core
+  running time of each benchmark.  The pair of rows labeled $T_S/T_1$
+  gives the work efficiency of each compiled benchmark, derived from
+  the first and second pairs of rows.  The pair of rows labeled
+  $T_S/T_{18}$ gives the parallel speedup of each compiled executable
+  on $18$ cores, derived from the first and third pairs of rows.}
+  \label{fig:benchnum}
+\end{figure*}
+
+% \begin{figure*}[t]
+% \small
+% \sisetup{table-format=2.3}
+% \begin{tab}{llSSSSSSSSS}
+% \toprule
+% & & {Cholesky} & {FFT}    & {NQueens} & {QSort} & {Rectmul} & {Strassen} & {AvgFilter} & 
+% {Mandel} & {ndMIS}  \\
+% \midrule
+% %\rule{0pt}{2.5ex}
+
+% \multirow{2}{*}{$T_S$}     & Ref.   &
+% 2.593  &  9.650  & 2.757   & 4.474 & 9.057   & 9.370  & 1.605  &
+% 22.814 & 8.950  \\
+%                         & \tapir &                                                          
+% 2.637  &  9.716  & 2.744   & 4.406 & 9.078   & 9.186  & 1.606  &
+% 22.873 & 8.890  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$T_1$}     & Ref.   &                                      
+% 4.093  & 11.061  & 3.103   & 5.916 & 9.229   & 9.461  & 2.160  &
+% 26.281 & 10.190 \\
+%                         & \tapir &                                                          
+% 4.191  & 10.925  & 3.034   & 5.731 & 9.247   & 9.221  & 1.591  &
+% 22.911 & 8.860  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$T_{18}$}    & Ref.   &                                    
+% 0.345  &  0.728   & 0.180  & 0.638 & 0.551   & 1.067   & 0.677  &
+% 1.686  & 0.749  \\
+%                         & \tapir &                                                          
+% 0.357  &  0.736  & 0.178   & 0.607 & 0.555   & 1.037   & 0.535  &
+% 1.414  & 0.688  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$\displaystyle \frac{T_S}{T_1}$}  & Ref.   &                                     
+% 0.634  &  0.872  & 0.888   & 0.756 & 0.981   & 0.990   & 0.743  &
+% 0.868  & 0.878  \\
+%                         & \tapir &                                                          
+% 0.629  &  0.889  & 0.904   & 0.769 & 0.982   & 0.996   & 1.009  &
+% 0.998  & 1.003  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$\displaystyle \frac{T_S}{T_{18}}$} & Ref.   &                                   
+% 7.516  & 13.255 & 15.317  & 7.013 & 16.437  & 8.782  & 2.371  &
+% 13.531 & 11.949 \\
+%                         & \tapir &                                                           
+% 7.387  & 13.201 & 15.416  & 7.259 & 16.357  & 8.858  & 3.002  &
+% 16.176 & 12.922  \\
+
+% \specialrule{\heavyrulewidth}{\aboverulesep}{\belowrulesep}
+% & & {radixSort} & {SpMV}   & {pRange} & {kdTree} & {incST}  & {parallelSF}
+% & {ndST} & {ndBFS} & {detBFS} \\
+% \midrule
+% %\rule{0pt}{2.5ex}
+% \multirow{2}{*}{$T_S$}     & Ref.   &
+% 3.505     & 1.640  & 2.380  & 4.916  & 4.090  & 5.003
+% & 3.949 & 3.756 & 5.489  \\
+%                & \tapir &
+% 3.440     & 1.633  & 2.405  & 5.013  & 4.060  & 4.983
+% & 3.960 & 3.746 & 5.430  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$T_1$}     & Ref.   &
+% 3.540     & 1.723  & 3.267  & 5.160  & 4.620  & 5.496
+% & 4.166 & 4.740 & 6.326  \\
+%                & \tapir &
+% 3.460     & 1.646  & 3.107  & 5.070  & 4.123  & 5.050
+% & 3.946 & 3.823 & 5.440  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$T_{18}$}    & Ref.   &
+% 0.272     & 0.116  & 0.356  & 0.317  & 0.344  & 0.405
+% & 1.687 & 0.399 & 0.484  \\
+%                & \tapir &
+% 0.269     & 0.110  & 0.331  & 0.315  & 0.320  & 0.385
+% & 1.625 & 0.355 & 0.463  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$\displaystyle \frac{T_S}{T_1}$}  & Ref.   &
+% 0.990     & 0.952  & 0.728  & 0.953  & 0.885  & 0.910
+% & 0.948 & 0.792 & 0.868  \\
+%                & \tapir &
+% 0.994     & 0.992  & 0.774  & 0.989  & 0.985  & 0.987
+% & 1.004 & 0.980 & 0.998  \\
+% %\rule{0pt}{2.5ex}
+% \addlinespace[0.5ex]
+% \multirow{2}{*}{$\displaystyle \frac{T_S}{T_{18}}$} & Ref.   &
+% 12.886     & 14.138 & 6.685  & 15.508 & 11.890 & 12.353
+% & 2.341 & 9.414 & 11.341  \\
+%                & \tapir &
+% 12.788     & 14.845 & 7.266  & 15.914 & 12.688 & 12.943
+% & 2.437 & 10.552 & 11.728 \\
+% \bottomrule
+% \end{tab}
+% \caption{Comparing the Reference compiler, denoted as ``Ref.,'' to
+%   \tapir/LLVM, denoted as ``\tapir,'' across the benchmarks from
+%   \figref{bench}.  Each measurement is the minimum over $10$
+%   executions.  The value $T_S$ indicates the single-core running
+%   time of the serial elision of the benchmark in seconds, and the
+%   values $T_1$ and $T_{18}$ indicate the running times of the
+%   benchmark in seconds on $1$ and $18$ processing cores,
+%   respectively.}
+%   \label{fig:benchnum}
+% \end{figure*}
+
+\section{Benchmarking}
+
+To benchmark the compiler pipelines, we assembled a collection of
+benchmark programs taken from the MIT Cilk benchmark suite
+\cite{FrigoLeRa98}, Intel Cilk code samples \cite{IntelCilkSamples},
+and the CMU Problem-Based Benchmark Suite~\cite{ShunBlFi12}.  From
+these collections, we selected stable programs that tend to exhibit
+little performance difference when the number or order of optimization
+passes is changed.  \figref{bench} describes the suite of benchmarks
+tested.
+
+We compiled each program in our benchmark suite with both \tapir/LLVM
+and Reference, and we ran them on both $1$ and $18$ cores of our test
+machine.  Additionally, we compiled the serial elision of each
+benchmark with each compiler.  Each running time is the minimum of
+$10$ runs on an Amazon AWS \texttt{c4.8xlarge} spot instance, which is
+a dual-socket Intel Xeon E5-2666 v3 system with a total of
+\SI{60}{\gibi\byte} of memory.  Each Xeon is a $2.9$\,GHz $18$-core
+CPU with a shared \SI{25}{\mebi\byte} L3-cache.  Each core has a
+\SI{32}{\kibi\byte} private L1-data-cache and a \SI{256}{\kibi\byte}
+private L2-cache.  The system was ``quiesced'' to permit careful
+measurements by turning off Turbo Boost, dvfs, hyperthreading,
+extraneous interrupts, etc.
+
+%We compare both overall performance as well as performance in comparison to the serial version of the code.
+%When the performance of the parallel code with one worker is compared with that of the serial version of the code, we expect to see a number that is most 1. If the number is larger than $1$ then the parallel structure of the code enabled more optimizations. However, more likely there may be a performance gap here. This is due to both the overhead of the
+%parallel framework as well as any optimizations that could run on the serial code. Thus if \tapir is effective we would expect this gap to shrinken and only represent the cost of the parallel overhead.
+
+\section{Overall performance}
+
+The results of our tests are given in \figref{benchnum}.  For the
+first pair of rows, Reference and \tapir/LLVM produce essentially
+identical executables when compiling the serial elision of a
+benchmark.  Differences in running times in these rows are due to
+system noise.  The second pair of rows shows that \tapir/LLVM produces
+executables with better work than Reference on \fillintheblank{$15$}
+of the benchmarks.  Of the remaining \fillintheblank{$5$} benchmarks,
+\fillintheblank{$4$} demonstrate less than a \fillintheblank{$1\%$}
+difference between their work relative to \tapir/LLVM or Reference.
+The fourth pair of rows elaborates on the results in the second pair
+to show that \tapir/LLVM produces executables with nearly optimal work
+efficiency (within $1\%$) on \fillintheblank{$12$} of the benchmarks,
+whereas Reference does so on only \fillintheblank{$2$}.  The third and
+fifth pairs of row show that \tapir/LLVM generally produces
+executables with similar or better parallel speedups than those
+produced by Reference.
+
+The biggest slowdown created from \tapir/LLVM's compilation occurs on
+Cholesky, for which the executable produced by \tapir/LLVM has
+\fillintheblank{$4\%$} more work than that produced by Reference.  In
+investigating this benchmark, we found that LLVM runs a handful of
+optimizations on each function before the middle-end optimization and
+lowering passes in either \tapir/LLVM or Reference.  Although these
+early optimizations have little effect on most programs, they reduce
+the work of the Reference-compiled Cholesky executable by
+approximately \fillintheblank{$20\%$}.  Although we experimented with
+several ways to implement lowering in Reference before these early
+optimizations, the resulting compilers consistently exhibited bugs on
+other benchmarks in the suite.  In our final design for Reference, we
+placed the initial lowering pass as early as we could muster while
+still ensuring that Reference could compile all benchmarks correctly.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:
+
+%  LocalWords:  Strassen's Scholes Cholesky nondeterministic Hoare's
+%  LocalWords:  parallelized quicksort 
+%  LocalWords:  LLVM multithreading multicore OpenMP Cilk GCC Cilk's
+%  LocalWords:  pseudocode metadata LLVM's bitcode codebase CFG's CFG
+%  LocalWords:  subexpression interleavings subcomputations runtime
+%  LocalWords:  vertices subcomputation OpenMP's inlining quicksort
+%  LocalWords:  CSE LICM TRE inlined Hoare's

@@ -1,0 +1,97 @@
+\usepackage{fccode}
+\usepackage{cilkbookstyle}
+
+% FCCode macro
+\newcommand{\fccode}[1]{\terminal{\fontsize{7.5}{9}\selectfont #1}}
+\newcommand{\fc}[2]{\PY{#1}{#2}}
+
+\usepackage{tikz}
+\usetikzlibrary{decorations.pathreplacing,shapes,arrows,positioning,calc}
+
+\tikzset{
+  basic block/.style={
+    rectangle,
+    rounded corners,
+    draw=black, thin,
+    % minimum width=3.2cm,
+    inner sep=3pt,
+    % outer sep=4pt,
+    align=left,
+    anchor=west,
+    fill=codebgcolor, 
+    % font={\ttfamily\fontsize{8.5}{10.2}\selectfont},
+    font={\ttfamily\fontsize{7.5}{9}\selectfont},
+    text=terminalcolor,
+    draw=codeheadcolor,
+    thick,
+    auto,
+    node distance=.4cm and 1.25cm,
+  },
+  cfedge/.style={
+    font=\itshape,
+    draw=black,
+    ->,
+    >=stealth'
+  },
+  process/.style={
+    draw,
+    fill=orange!50,
+    rectangle,
+    minimum height=1.5em,
+    minimum width=5em,
+    align=center,
+    font=\small,
+  },
+  form/.style={
+    draw,
+    fill=blue!30,
+    ellipse,
+    minimum height=1em,
+    align=center,
+    font=\footnotesize,
+  },
+  slave/.style={
+    execute at end picture={
+      \coordinate (lower right) at (current bounding box.south east);
+      \coordinate (upper left) at (current bounding box.north west);
+      \pgfresetboundingbox
+      \path (upper left) rectangle (lower right);
+    }
+  }
+}
+
+
+% \usetikzlibrary{decorations.pathreplacing,shapes,arrows,positioning,calc}
+
+% \tikzset{
+%     state/.style={
+%            rectangle,
+%            rounded corners,
+%            draw=black, thin,
+% %           minimum width=3.2cm,
+%            inner sep=3pt,
+% %           outer sep=4pt,
+%            align=left,
+%            anchor=west,
+%             fill=gray!20,
+% % Copied font size from fccode.sty
+%           font=\ttfamily\fontsize{7.5}{9}\selectfont,
+%            },
+% }
+
+\usepackage{bigdelim}
+
+\newcommand{\tbsnote}[1]{\cnote{red}{TB: #1}}
+\newcommand{\wmnote}[1]{\cnote{red}{Billy: #1}}
+\newcommand{\celnote}[1]{\cnote{red}{CEL: #1}}
+
+\newcommand{\tapir}{Tapir\xspace}
+\newcommand{\tapirllvm}{Tapir/LLVM\xspace}
+
+\newcommand{\detach}{\code{detach}\xspace}
+\newcommand{\reattach}{\code{reattach}\xspace}
+\newcommand{\sync}{\code{sync}\xspace}
+
+
+% Turn on the style
+\usepackage{fancyhdr}

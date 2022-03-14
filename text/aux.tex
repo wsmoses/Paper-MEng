@@ -1,0 +1,76 @@
+\chapput{aux}{Auxiliary software}
+
+This chapter describes auxiliary software that the Tapir team developed to
+exercise and test \tapir/LLVM\@.  Although our research focuses on the
+middle end of the compiler, we implemented a front end for Cilk Plus.
+In addition, we developed compiler instrumentation that allows the
+compiler to interface to a race detector to verify the correctness of
+the \tapir/LLVM implementation.
+
+% and a pass to lower \tapir constructs to Intel Cilk Plus runtime calls
+
+To create the front end, the Tapir team created a modification of the Clang front
+end called PClang, which translates Cilk Plus codes to \tapir.  We
+also created a version of Clang that can handle some OpenMP codes.
+PClang handles most of the fork-join control constructs specified by
+the Cilk Plus programming model, and specifically, enough to run all
+the benchmarks described in \chapref{eval}.
+
+We augmented \tapir/LLVM in two ways to test the correctness of the
+implementation.  First, we modified LLVM's internal verification pass
+to check that \tapir's invariants are also maintained.  Second, we
+added an instrumentation pass to \tapir/LLVM to allow parallel
+executables to be tested for determinacy races using a provably good
+determinacy race detector.  This race detector, based on the SP-bags
+algorithm \cite{FengLe99}, is guaranteed to find a determinacy race if
+an only if one exists in the program execution.  The verification pass
+and race detector helped us locate and fix bugs in \tapir/LLVM, both
+within our code and within the underlying LLVM codebase.  \tapir/LLVM
+now passes all tests in LLVM's regression test suites and correctly
+compiles our own suite of parallel test programs.
+
+% To test the correctness of \tapir/LLVM, we implemented two tools to
+% check that \tapir/LLVM functions as expected.  First, we modified
+% LLVM's internal verification pass to check that \tapir's invariants
+% are also maintained.  Second, we augmented \tapir/LLVM to enable
+% compiled executables to be tested for determinacy races, using detector
+% based on the SP
+
+% Second, we augmented the lowering pass to
+% optionally instrument \detach, \reattach, and \sync instructions, as
+% well as function entries and exits.  This instrumentation allowed us
+% use a race detector based on the SP-bags algorithm \cite{FengLe99},
+% which guarantees to identify a determinacy race if one exists.  
+
+The instrumentation pass has proved useful for supporting other
+dynamic-analysis tools based on \tapir/LLVM.  Genghis Chau of MIT
+adapted the Cilkprof scalability profiler \cite{SchardlKuLe15} to use
+\tapir/LLVM and this instrumentation in order to build an integrated
+development environment with always-on race detection and scalability
+profiling facilities.
+
+% This same instrumentation also allowed us to efficiently examine the
+% scalability of \tapir programs, using the Cilkprof scalability
+% profiler \cite{SchardlKuLe15}, to ensure that optimizations do
+% not % serialize code or otherwise
+% inhibit parallel scalability.  
+
+% Using these tools, we tested the correctness of \tapir/LLVM when run
+% on the benchmarks from \secref{eval} and on many other codes.  The
+% tools found bugs in our initial implementation of \tapir/LLVM as well
+% as bugs within LLVM itself within the CodeGen phase.  After these bugs
+% were patched, all the benchmarks behaved as expected.  We also ran
+% \tapir/LLVM against LLVM's internal regression suite and verified that
+% \tapir did not produce any additional failures.
+
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: "tapir"
+%%% End:
+
+%  LocalWords:  Cilkprof profiler CodeGen
+%  LocalWords:  LLVM multithreading multicore OpenMP Cilk GCC Cilk's
+%  LocalWords:  pseudocode metadata LLVM's bitcode codebase CFG's CFG
+%  LocalWords:  subexpression interleavings subcomputations runtime
+%  LocalWords:  vertices subcomputation OpenMP's inlining quicksort
+%  LocalWords:  CSE LICM TRE inlined Hoare's
